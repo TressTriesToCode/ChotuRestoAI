@@ -3,7 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database.session import get_db
 from app.models.table import DiningTable, TableStatus
-from app.schemas.menu import TableResponse, TableStatusUpdate
+from app.schemas.menu import TableResponse, TableStatusUpdate, TableTransferRequest
+from app.services.order_service import OrderService
 from app.api.deps import get_current_user
 from app.models.user import User
 from app.websocket.manager import ws_manager
@@ -52,3 +53,25 @@ async def update_table_status(
         create_ws_message(WSEventType.TABLE_UPDATED, {"table_id": table.id, "status": table.status.value})
     )
     return table
+
+@router.post("/{table_id}/transfer", response_model=TableResponse)
+async def transfer_table(
+    table_id: str,
+    req: TableTransferRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        target_table = OrderService.transfer_table(db, current_user.restaurant_id, table_id, req.target_table_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    await ws_manager.broadcast_to_restaurant(
+        current_user.restaurant_id,
+        create_ws_message(WSEventType.TABLE_UPDATED, {"table_id": table_id, "status": TableStatus.VACANT.value})
+    )
+    await ws_manager.broadcast_to_restaurant(
+        current_user.restaurant_id,
+        create_ws_message(WSEventType.TABLE_UPDATED, {"table_id": target_table.id, "status": target_table.status.value})
+    )
+    return target_table

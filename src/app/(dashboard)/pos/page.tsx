@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { PosTerminal } from "@/components/pos/PosTerminal";
 import { Modal } from "@/components/ui/Modal";
 import { 
@@ -19,10 +20,13 @@ import {
 } from "@/lib/api/pos";
 import { Printer, CheckCircle2, QrCode, CreditCard, Banknote, ShieldCheck } from "lucide-react";
 
-export default function PosPage() {
+function PosContent() {
+  const searchParams = useSearchParams();
+  const tableParam = searchParams ? searchParams.get("table") : null;
+
   const [tables, setTables] = useState<Table[]>(INITIAL_TABLES);
   const [dishes, setDishes] = useState<MenuItem[]>([]);
-  const [selectedTableId, setSelectedTableId] = useState<string>("T-04");
+  const [selectedTableId, setSelectedTableId] = useState<string>(tableParam || "T-04");
   const [ledgerItems, setLedgerItems] = useState<OrderItem[]>([]);
   const [showSettleModal, setShowSettleModal] = useState<boolean>(false);
   const [showPrintModal, setShowPrintModal] = useState<boolean>(false);
@@ -34,6 +38,12 @@ export default function PosPage() {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
   };
+
+  useEffect(() => {
+    if (tableParam) {
+      setSelectedTableId(tableParam);
+    }
+  }, [tableParam]);
 
   useEffect(() => {
     async function loadInitialData() {
@@ -64,12 +74,12 @@ export default function PosPage() {
     syncTableOrder();
   }, [selectedTableId]);
 
-  const handleAddDish = async (dish: MenuItem) => {
+  const handleAddDish = async (dish: MenuItem, notes?: string) => {
     setLedgerItems((prev) => {
-      const existing = prev.find((i) => i.dishId === dish.id);
+      const existing = prev.find((i) => i.dishId === dish.id && i.notes === notes);
       if (existing) {
         return prev.map((i) =>
-          i.dishId === dish.id ? { ...i, quantity: i.quantity + 1 } : i
+          i.dishId === dish.id && i.notes === notes ? { ...i, quantity: i.quantity + 1 } : i
         );
       }
       return [
@@ -81,12 +91,13 @@ export default function PosPage() {
           quantity: 1,
           dietary: dish.dietary,
           station: dish.station,
+          notes: notes,
         },
       ];
     });
 
     try {
-      await addOrUpdateOrderItem(selectedTableId, dish.id, 1);
+      await addOrUpdateOrderItem(selectedTableId, dish.id, 1, notes);
     } catch {
       // Local optimistic update kept
     }
@@ -363,5 +374,13 @@ export default function PosPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function PosPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-xs font-mono text-stone-500">Loading POS Terminal...</div>}>
+      <PosContent />
+    </Suspense>
   );
 }

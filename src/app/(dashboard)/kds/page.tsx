@@ -82,6 +82,8 @@ export default function KdsPage() {
         onBumpKot={handleBumpKot}
         onRecallKot={handleRecallKot}
         onToggleItem={handleToggleItem}
+        onRefresh={loadTickets}
+        isWsConnected={true}
       />
 
       {toastMessage && (

@@ -15,6 +15,19 @@ export interface BackendMenuItem {
   bestseller?: boolean;
 }
 
+const DISH_IMAGE_MAP: Record<string, string> = {
+  "dish-01": "https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?auto=format&fit=crop&w=500&q=80",
+  "dish-02": "https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?auto=format&fit=crop&w=500&q=80",
+  "dish-03": "https://images.unsplash.com/photo-1546833999-b9f581a1996d?auto=format&fit=crop&w=500&q=80",
+  "dish-04": "https://images.unsplash.com/photo-1626074353765-517a681e40be?auto=format&fit=crop&w=500&q=80",
+  "dish-05": "https://images.unsplash.com/photo-1589301760014-d929f3979dbc?auto=format&fit=crop&w=500&q=80",
+  "dish-06": "https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?auto=format&fit=crop&w=500&q=80",
+  "dish-07": "https://images.unsplash.com/photo-1589119908995-c6837fa14d48?auto=format&fit=crop&w=500&q=80",
+  "dish-08": "https://images.unsplash.com/photo-1551024709-8f23befc6f87?auto=format&fit=crop&w=500&q=80",
+  "dish-09": "https://images.unsplash.com/photo-1546173159-315724a31696?auto=format&fit=crop&w=500&q=80",
+  "dish-10": "https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=500&q=80",
+};
+
 export function mapBackendMenuItem(item: BackendMenuItem): MenuItem {
   return {
     id: item.id,
@@ -27,6 +40,7 @@ export function mapBackendMenuItem(item: BackendMenuItem): MenuItem {
     inStock: item.in_stock,
     spiceLevel: item.spice_level,
     bestseller: item.bestseller,
+    image: DISH_IMAGE_MAP[item.id] || "https://images.unsplash.com/photo-1546833999-b9f581a1996d?auto=format&fit=crop&w=500&q=80",
   };
 }
 

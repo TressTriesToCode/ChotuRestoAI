@@ -227,3 +227,38 @@ class OrderService:
         db.commit()
         db.refresh(order)
         return order
+
+    @staticmethod
+    def transfer_table(db: Session, restaurant_id: str, from_table_id: str, to_table_id: str) -> DiningTable:
+        from_table = db.query(DiningTable).filter(DiningTable.id == from_table_id, DiningTable.restaurant_id == restaurant_id).first()
+        to_table = db.query(DiningTable).filter(DiningTable.id == to_table_id, DiningTable.restaurant_id == restaurant_id).first()
+        if not from_table:
+            raise ValueError(f"Source table {from_table_id} not found")
+        if not to_table:
+            raise ValueError(f"Target table {to_table_id} not found")
+        if not from_table.current_order_id:
+            raise ValueError(f"Table {from_table.label} has no active order to transfer")
+        if to_table.status != TableStatus.VACANT:
+            raise ValueError(f"Target table {to_table.label} is currently {to_table.status.value}, cannot transfer")
+
+        order = db.query(Order).filter(Order.id == from_table.current_order_id).first()
+        if order:
+            order.table_id = to_table.id
+            db.query(KOT).filter(KOT.order_id == order.id).update({"table_id": to_table.id})
+
+        to_table.current_order_id = from_table.current_order_id
+        to_table.status = from_table.status
+        to_table.current_bill = from_table.current_bill
+        to_table.captain_name = from_table.captain_name
+        to_table.opened_at = from_table.opened_at
+
+        from_table.current_order_id = None
+        from_table.status = TableStatus.VACANT
+        from_table.current_bill = Decimal("0.00")
+        from_table.captain_name = None
+        from_table.opened_at = None
+
+        db.commit()
+        db.refresh(to_table)
+        db.refresh(from_table)
+        return to_table

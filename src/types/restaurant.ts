@@ -12,6 +12,7 @@ export interface MenuItem {
   station: "tandoor" | "curry" | "bar" | "pantry";
   inStock: boolean;
   stockCount?: number;
+  image?: string;
 }
 
 export type TableStatus = "vacant" | "occupied" | "billed" | "reserved";
@@ -25,6 +26,9 @@ export interface Table {
   guestCount?: number;
   captainName?: string;
   openedAt?: string;
+  qrToken?: string;
+  currentOrderId?: string;
+  section?: string;
 }
 
 export interface OrderItem {

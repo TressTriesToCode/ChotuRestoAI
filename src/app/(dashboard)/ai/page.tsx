@@ -77,11 +77,12 @@ export default function AiConsolePage() {
   };
 
   const samplePrompts = [
-    "Today's total revenue and orders?",
-    "Which ingredients are low on stock?",
-    "Show tables currently occupied",
-    "Top 3 bestselling dishes today?",
-    "Aaj kitni sale hui hai?",
+    "How much did we sell today?",
+    "Which tables are currently occupied?",
+    "Which ingredients are running low?",
+    "What are our best-selling items?",
+    "Summarise today's restaurant performance",
+    "Table 4 ka bill kitna hai?",
   ];
 
   return (

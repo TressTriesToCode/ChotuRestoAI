@@ -23,6 +23,9 @@ class TableStatusUpdate(BaseModel):
     status: TableStatus
     captain_name: Optional[str] = None
 
+class TableTransferRequest(BaseModel):
+    target_table_id: str
+
 class MenuItemResponse(BaseModel):
     id: str
     restaurant_id: str

@@ -50,8 +50,8 @@ export default function AnalyticsPage() {
     loadAnalytics();
   }, [dateRange]);
 
-  const grossRevenue = overview?.today_revenue ? Number(overview.today_revenue) : 24850;
-  const orderCount = overview?.completed_orders_today ?? (completedOrders.length || 42);
+  const grossRevenue = overview?.today_revenue ? Number(overview.today_revenue) : 0;
+  const orderCount = overview?.completed_orders_today ?? completedOrders.length;
   const totalTax = grossRevenue * 0.05;
   const halfTax = totalTax / 2;
   const serviceCharge = grossRevenue * 0.05;
@@ -64,9 +64,7 @@ export default function AnalyticsPage() {
         csvContent += `${o.orderNumber || o.id},${o.time || "Today"},${o.tableId || o.mode},${o.customerName || "Guest"},${o.totalAmount || 0},${o.status}\n`;
       });
     } else {
-      csvContent += "ORD-101,23-Nov-2026,T-04,Rahul S.,891.00,completed\n";
-      csvContent += "ORD-102,23-Nov-2026,T-01,Vikram S.,1012.00,completed\n";
-      csvContent += "ORD-103,23-Nov-2026,DELIVERY,Aakash M.,682.00,completed\n";
+      csvContent += `Summary,${new Date().toLocaleDateString()},All Channels,Gross Revenue,${grossRevenue.toFixed(2)},completed\n`;
     }
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
@@ -179,6 +177,22 @@ export default function AnalyticsPage() {
 
             <div className="p-3.5 rounded-xl bg-stone-900 border border-stone-800 flex items-center justify-between">
               <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
+                  <QrCode className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-white">Direct UPI & Dynamic QR</p>
+                  <p className="text-[10px] text-stone-400">Google Pay, PhonePe, Paytm</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-xs font-bold text-emerald-400">₹{(grossRevenue * 0.6).toFixed(2)}</p>
+                <p className="text-[10px] text-stone-500 font-mono">60% of total</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-stone-900 border border-stone-800 flex items-center justify-between">
+              <div className="flex items-center gap-3">
                 <div className="p-2 rounded-lg bg-blue-500/10 text-blue-400">
                   <CreditCard className="w-5 h-5" />
                 </div>
@@ -188,7 +202,7 @@ export default function AnalyticsPage() {
                 </div>
               </div>
               <div className="text-right">
-                <p className="text-xs font-bold text-blue-400">₹6,212.50</p>
+                <p className="text-xs font-bold text-blue-400">₹{(grossRevenue * 0.25).toFixed(2)}</p>
                 <p className="text-[10px] text-stone-500 font-mono">25% of total</p>
               </div>
             </div>
@@ -204,7 +218,7 @@ export default function AnalyticsPage() {
                 </div>
               </div>
               <div className="text-right">
-                <p className="text-xs font-bold text-amber-400">₹3,727.50</p>
+                <p className="text-xs font-bold text-amber-400">₹{(grossRevenue * 0.15).toFixed(2)}</p>
                 <p className="text-[10px] text-stone-500 font-mono">15% of total</p>
               </div>
             </div>
@@ -217,39 +231,36 @@ export default function AnalyticsPage() {
             <h3 className="text-xs font-bold text-white uppercase font-mono tracking-wider">
               Sales Channel Breakdown
             </h3>
-            <span className="text-[10px] text-stone-500 font-mono">3 CHANNELS ACTIVE</span>
+            <span className="text-[10px] text-stone-500 font-mono">
+              {overview?.channel_sales?.length || 0} CHANNELS REPORTED
+            </span>
           </div>
 
           <div className="space-y-3">
-            <div>
-              <div className="flex justify-between text-xs mb-1">
-                <span className="text-stone-300 font-medium">In-Store Dine-In (Tables)</span>
-                <span className="font-bold text-white">₹15,400 (62%)</span>
+            {overview?.channel_sales && overview.channel_sales.length > 0 ? (
+              overview.channel_sales.map((ch, idx) => (
+                <div key={idx}>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-stone-300 font-medium">{ch.label}</span>
+                    <span className="font-bold text-white">
+                      ₹{Number(ch.revenue).toFixed(2)} ({ch.percentage}%)
+                    </span>
+                  </div>
+                  <div className="w-full h-2 rounded-full bg-stone-900 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${
+                        idx === 0 ? "bg-[#E07A5F]" : idx === 1 ? "bg-emerald-500" : "bg-amber-500"
+                      }`}
+                      style={{ width: `${Math.min(100, Math.max(0, ch.percentage))}%` }}
+                    />
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="py-6 text-center text-xs font-mono text-stone-500">
+                No channel sales reported for this period yet.
               </div>
-              <div className="w-full h-2 rounded-full bg-stone-900 overflow-hidden">
-                <div className="h-full bg-[#E07A5F] rounded-full" style={{ width: "62%" }} />
-              </div>
-            </div>
-
-            <div>
-              <div className="flex justify-between text-xs mb-1">
-                <span className="text-stone-300 font-medium">QR Contactless Self-Ordering</span>
-                <span className="font-bold text-white">₹5,960 (24%)</span>
-              </div>
-              <div className="w-full h-2 rounded-full bg-stone-900 overflow-hidden">
-                <div className="h-full bg-emerald-500 rounded-full" style={{ width: "24%" }} />
-              </div>
-            </div>
-
-            <div>
-              <div className="flex justify-between text-xs mb-1">
-                <span className="text-stone-300 font-medium">Delivery & Aggregators (Zomato/Swiggy)</span>
-                <span className="font-bold text-white">₹3,490 (14%)</span>
-              </div>
-              <div className="w-full h-2 rounded-full bg-stone-900 overflow-hidden">
-                <div className="h-full bg-amber-500 rounded-full" style={{ width: "14%" }} />
-              </div>
-            </div>
+            )}
           </div>
         </div>
       </div>
