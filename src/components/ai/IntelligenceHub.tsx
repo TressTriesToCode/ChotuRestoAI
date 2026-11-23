@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   AlertCircle,
   TrendingUp,
@@ -21,11 +21,27 @@ import {
   WEEKLY_TRAFFIC_SOURCES,
   PROMOTION_IMPACTS,
 } from "@/data/mockData";
+import { fetchAnalyticsOverview, AnalyticsOverview } from "@/lib/api/analytics";
 
 export const IntelligenceHub: React.FC = () => {
   const [poSent, setPoSent] = useState<boolean>(false);
   const [promoSent, setPromoSent] = useState<boolean>(false);
   const [deliveryThrottled, setDeliveryThrottled] = useState<boolean>(false);
+  const [analytics, setAnalytics] = useState<AnalyticsOverview | null>(null);
+
+  useEffect(() => {
+    fetchAnalyticsOverview()
+      .then((data) => setAnalytics(data))
+      .catch((err) => console.warn("Analytics API fallback:", err));
+  }, []);
+
+  // Live or fallback metrics
+  const todayRevenue = analytics ? analytics.today_revenue : 42850;
+  const occupiedTables = analytics ? analytics.occupied_tables : 8;
+  const totalTables = analytics ? analytics.total_tables : 14;
+  const occupancyRate = totalTables > 0 ? ((occupiedTables / totalTables) * 100).toFixed(1) : "57.1";
+  const prepPace = analytics ? `${analytics.avg_prep_time_minutes}m 12s` : "8m 14s";
+  const activeKots = analytics ? analytics.active_kot_count : 6;
 
   // Calculate totals for promotions
   const totalDiscountSpent = PROMOTION_IMPACTS.reduce((acc, p) => acc + p.discountSpent, 0);
@@ -58,7 +74,7 @@ export const IntelligenceHub: React.FC = () => {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-canvas-card border border-border p-5 space-y-1">
           <div className="text-xs font-mono text-ink-secondary uppercase">Today&apos;s Revenue</div>
-          <div className="text-2xl font-bold font-mono text-ink">₹ 42,850.00</div>
+          <div className="text-2xl font-bold font-mono text-ink">₹ {todayRevenue.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
           <div className="text-xs text-dietary-veg font-medium flex items-center gap-1">
             <TrendingUp className="w-3 h-3" />
             <span>+14.2% vs 7-day average</span>
@@ -68,14 +84,14 @@ export const IntelligenceHub: React.FC = () => {
         <div className="bg-canvas-card border border-border p-5 space-y-1">
           <div className="text-xs font-mono text-ink-secondary uppercase">Table Occupancy</div>
           <div className="text-2xl font-bold font-mono text-ink">
-            8 <span className="text-sm font-normal text-ink-secondary">/ 14 Tables</span>
+            {occupiedTables} <span className="text-sm font-normal text-ink-secondary">/ {totalTables} Tables</span>
           </div>
-          <div className="text-xs text-ink-secondary">57.1% dine-in capacity</div>
+          <div className="text-xs text-ink-secondary">{occupancyRate}% dine-in capacity</div>
         </div>
 
         <div className="bg-canvas-card border border-border p-5 space-y-1">
           <div className="text-xs font-mono text-ink-secondary uppercase">Kitchen Prep Pace</div>
-          <div className="text-2xl font-bold font-mono text-ink">8m 14s</div>
+          <div className="text-2xl font-bold font-mono text-ink">{prepPace}</div>
           <div className="text-xs text-ink-secondary flex items-center gap-1">
             <Clock className="w-3 h-3" />
             <span>Target: &lt;10 mins</span>
@@ -84,8 +100,8 @@ export const IntelligenceHub: React.FC = () => {
 
         <div className="bg-canvas-card border border-border p-5 space-y-1">
           <div className="text-xs font-mono text-ink-secondary uppercase">Active KOT Tickets</div>
-          <div className="text-2xl font-bold font-mono text-ink">6 Queued</div>
-          <div className="text-xs text-accent">1 ticket approaching 10m</div>
+          <div className="text-2xl font-bold font-mono text-ink">{activeKots} Queued</div>
+          <div className="text-xs text-accent">Real-time KDS active tickets</div>
         </div>
       </div>
 

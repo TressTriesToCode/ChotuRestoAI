@@ -27,6 +27,7 @@ interface PosTerminalProps {
   onTransmitKot: () => void;
   onSendWhatsApp: () => void;
   onSettleBill: () => void;
+  dishes?: MenuItem[];
 }
 
 export const PosTerminal: React.FC<PosTerminalProps> = ({
@@ -40,6 +41,7 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
   onTransmitKot,
   onSendWhatsApp,
   onSettleBill,
+  dishes,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -54,8 +56,11 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
   const serviceCharge = subtotal * 0.05;
   const grandTotal = subtotal + gst + serviceCharge;
 
+  // Live menu items from PostgreSQL or fallback to initial catalog
+  const availableDishes = dishes && dishes.length > 0 ? dishes : MENU_ITEMS;
+
   // Filtered menu items
-  const filteredDishes = MENU_ITEMS.filter((dish) => {
+  const filteredDishes = availableDishes.filter((dish) => {
     const matchesCat = selectedCategory === "all" || dish.category === selectedCategory;
     const matchesDietary = dietaryFilter === "all" || dish.dietary === dietaryFilter;
     const matchesSearch =

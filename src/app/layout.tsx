@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { AuthProvider } from "@/lib/context/AuthContext";
 
 export const metadata: Metadata = {
   title: "Chotu Restro AI — Modern Restaurant Operating System",
@@ -15,9 +16,11 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body
         suppressHydrationWarning
-        className="bg-canvas text-ink antialiased min-h-screen flex flex-col selection:bg-accent selection:text-white"
+        className="bg-[#110E0D] text-stone-100 antialiased min-h-screen flex flex-col selection:bg-[#E07A5F] selection:text-white"
       >
-        {children}
+        <AuthProvider>
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );

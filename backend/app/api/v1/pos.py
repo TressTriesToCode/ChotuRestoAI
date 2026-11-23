@@ -1,0 +1,106 @@
+from typing import List, Optional
+from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from app.database.session import get_db
+from app.models.order import Order, PlacedBy
+from app.schemas.order import OrderResponse, BillSettlementRequest
+from app.schemas.kot import KOTResponse
+from app.services.order_service import OrderService
+from app.api.deps import get_current_user
+from app.models.user import User
+from app.websocket.manager import ws_manager
+from app.websocket.events import WSEventType, create_ws_message
+
+router = APIRouter()
+
+class ModifyItemRequest(BaseModel):
+    dish_id: str
+    delta_qty: int  # +1 or -1 or -qty to delete
+    notes: Optional[str] = None
+
+class FireKOTRequest(BaseModel):
+    captain_notes: Optional[str] = None
+
+@router.get("/tables/{table_id}/order", response_model=OrderResponse)
+def get_table_order(
+    table_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    CRITICAL REQUIREMENT: Retrieves or starts the independent order specific to this table.
+    """
+    order = OrderService.get_or_create_table_order(db, current_user.restaurant_id, table_id, placed_by=PlacedBy.POS)
+    return order
+
+@router.post("/tables/{table_id}/order/items", response_model=OrderResponse)
+async def modify_table_order_item(
+    table_id: str,
+    req: ModifyItemRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    order = OrderService.get_or_create_table_order(db, current_user.restaurant_id, table_id, placed_by=PlacedBy.POS)
+    order = OrderService.add_or_update_order_item(db, order.id, req.dish_id, req.delta_qty, req.notes)
+    
+    await ws_manager.broadcast_to_restaurant(
+        current_user.restaurant_id,
+        create_ws_message(WSEventType.ORDER_UPDATED, {"order_id": order.id, "table_id": table_id, "total": float(order.total_amount)})
+    )
+    return order
+
+@router.delete("/tables/{table_id}/order/items/{dish_id}", response_model=OrderResponse)
+async def remove_table_order_item(
+    table_id: str,
+    dish_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    order = OrderService.get_or_create_table_order(db, current_user.restaurant_id, table_id, placed_by=PlacedBy.POS)
+    order = OrderService.add_or_update_order_item(db, order.id, dish_id, delta_qty=-9999)
+    await ws_manager.broadcast_to_restaurant(
+        current_user.restaurant_id,
+        create_ws_message(WSEventType.ORDER_UPDATED, {"order_id": order.id, "table_id": table_id, "total": float(order.total_amount)})
+    )
+    return order
+
+@router.post("/tables/{table_id}/fire-kot", response_model=KOTResponse)
+async def fire_table_kot(
+    table_id: str,
+    req: FireKOTRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    order = OrderService.get_or_create_table_order(db, current_user.restaurant_id, table_id, placed_by=PlacedBy.POS)
+    try:
+        kot = OrderService.fire_kot(db, order.id, req.captain_notes)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    await ws_manager.broadcast_to_restaurant(
+        current_user.restaurant_id,
+        create_ws_message(WSEventType.KOT_CREATED, {
+            "kot_id": kot.id,
+            "kot_number": kot.kot_number,
+            "table_id": kot.table_id,
+            "items_count": len(kot.items)
+        })
+    )
+    return kot
+
+@router.post("/tables/{table_id}/settle", response_model=OrderResponse)
+async def settle_table_bill(
+    table_id: str,
+    req: BillSettlementRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    order = OrderService.get_or_create_table_order(db, current_user.restaurant_id, table_id, placed_by=PlacedBy.POS)
+    order = OrderService.settle_bill(db, order.id, req.payment_method)
+
+    await ws_manager.broadcast_to_restaurant(
+        current_user.restaurant_id,
+        create_ws_message(WSEventType.TABLE_UPDATED, {"table_id": table_id, "status": "vacant"})
+    )
+    return order

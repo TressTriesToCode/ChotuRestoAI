@@ -1,41 +1,80 @@
-# dependencies
-/node_modules
-/.pnp
+# ==========================================
+# Chotu Restro AI — Git Ignore Rules
+# ==========================================
+
+# Dependencies
+node_modules/
+.pnp
 .pnp.js
 
-# testing
-/coverage
+# Next.js Build Output
+.next/
+out/
+build/
+dist/
 
-# next.js
-/.next/
-/out/
-
-# production
-/build
-
-# misc
-.DS_Store
-*.pem
-
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# local env files
-.env*.local
-
-# vercel
-.vercel
-
-# typescript
+# TypeScript & Caches
 *.tsbuildinfo
 next-env.d.ts
 
-# local agent files
+# Python Bytecode & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Python Virtual Environments
+venv/
+env/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Testing & Coverage
+coverage/
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local & Ephemeral Databases (PostgreSQL is production source of truth)
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# Environment Variables & Secrets
+.env
+.env*.local
+backend/.env
+!.env.example
+!backend/.env.example
+
+# Debug & Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# OS & Editor Metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+*.pem
+.vscode/
+.idea/
+
+# Deployment & Vercel
+.vercel
+
+# Agent Files
 .gemini/
 
-# impeccable local config (keep .impeccable/config.json committed)
+# Impeccable config (keep .impeccable/config.json committed)
 .impeccable/config.local.json
 .impeccable/hook.cache.json
 .impeccable/questions/

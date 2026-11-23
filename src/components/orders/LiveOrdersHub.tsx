@@ -327,7 +327,7 @@ export const LiveOrdersHub: React.FC<LiveOrdersHubProps> = ({
                       {/* Column 5: Amount */}
                       <td className="py-4 px-4 text-right whitespace-nowrap align-middle">
                         <span className="text-xs font-bold font-mono text-ink">
-                          $ {ord.totalAmount.toFixed(2)}
+                          ₹ {ord.totalAmount.toFixed(2)}
                         </span>
                       </td>
 
@@ -707,7 +707,7 @@ export const LiveOrdersHub: React.FC<LiveOrdersHubProps> = ({
               </div>
               <div className="flex justify-between pt-2 border-t border-border font-bold text-sm">
                 <span>Total Amount:</span>
-                <span className="font-mono text-ink">$ {selectedOrder.totalAmount.toFixed(2)}</span>
+                <span className="font-mono text-ink">₹ {selectedOrder.totalAmount.toFixed(2)}</span>
               </div>
             </div>
 

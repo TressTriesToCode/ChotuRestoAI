@@ -128,3 +128,72 @@ export interface PromotionImpact {
   insightNote: string;
 }
 
+export interface Customer {
+  id: string;
+  name: string;
+  phone: string;
+  email?: string;
+  totalOrders: number;
+  totalSpend: number;
+  loyaltyPoints: number;
+  lastVisit: string;
+  tags?: string[];
+  favoriteDishes?: string[];
+}
+
+export interface Expense {
+  id: string;
+  title: string;
+  category: "supplies" | "utilities" | "payroll" | "maintenance" | "marketing" | "other";
+  amount: number;
+  paymentMode: "cash" | "upi" | "bank_transfer" | "card";
+  paidTo: string;
+  recordedBy: string;
+  date: string;
+  receiptNumber?: string;
+  notes?: string;
+}
+
+export interface StaffMember {
+  id: string;
+  name: string;
+  username: string;
+  role: "admin" | "manager" | "cashier" | "chef" | "waiter";
+  phone: string;
+  activeShift: boolean;
+  shiftStartTime?: string;
+  status: "active" | "on_break" | "off_duty";
+}
+
+export interface RestaurantSettings {
+  restaurantName: string;
+  tagline: string;
+  phone: string;
+  email: string;
+  address: string;
+  gstin: string;
+  fssaiNumber: string;
+  cgstPercent: number;
+  sgstPercent: number;
+  serviceChargePercent: number;
+  serviceChargeEnabled: boolean;
+  currency: string;
+  upiVpa: string;
+  autoPrintKOT: boolean;
+}
+
+export interface Coupon {
+  id: string;
+  code: string;
+  description: string;
+  discountType: "flat" | "percentage";
+  discountValue: number;
+  minOrderValue: number;
+  maxDiscount?: number;
+  usageLimit: number;
+  usedCount: number;
+  expiresAt: string;
+  isActive: boolean;
+}
+
+

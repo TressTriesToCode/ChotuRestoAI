@@ -8,20 +8,25 @@ interface KitchenDisplayProps {
   kots: KOT[];
   onBumpKot: (kotId: string) => void;
   onRecallKot: (kotId: string) => void;
+  onToggleItem?: (itemId: string) => void;
 }
 
 export const KitchenDisplay: React.FC<KitchenDisplayProps> = ({ 
   kots, 
   onBumpKot, 
-  onRecallKot 
+  onRecallKot,
+  onToggleItem 
 }) => {
   const [viewMode, setViewMode] = useState<"active" | "completed">("active");
   const [stationFilter, setStationFilter] = useState<string>("all");
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>({});
 
-  const toggleItemCheck = (key: string) => {
+  const toggleItemCheck = (key: string, itemId?: string) => {
     setCheckedItems((prev) => ({ ...prev, [key]: !prev[key] }));
+    if (onToggleItem && itemId) {
+      onToggleItem(itemId);
+    }
   };
 
   const activeKots = kots.filter((k) => k.status !== "bumped");
@@ -211,7 +216,7 @@ export const KitchenDisplay: React.FC<KitchenDisplayProps> = ({
                       return (
                         <div
                           key={itemKey}
-                          onClick={() => !isCompleted && toggleItemCheck(itemKey)}
+                          onClick={() => !isCompleted && toggleItemCheck(itemKey, item.dishId)}
                           className={`pt-2.5 first:pt-0 flex items-start justify-between ${
                             !isCompleted ? "cursor-pointer select-none" : ""
                           } ${isDone ? "opacity-40 line-through" : ""}`}

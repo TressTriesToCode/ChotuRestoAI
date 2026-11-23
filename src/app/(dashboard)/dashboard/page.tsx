@@ -1,0 +1,324 @@
+"use client";
+
+import React, { useState, useEffect } from "react";
+import Link from "next/link";
+import { 
+  Receipt, 
+  UtensilsCrossed, 
+  Grid3X3, 
+  TrendingUp, 
+  AlertTriangle, 
+  Clock, 
+  Users, 
+  ShoppingBag,
+  ArrowRight,
+  Sparkles,
+  ChevronRight
+} from "lucide-react";
+import { PageHeader } from "@/components/layout/PageHeader";
+import { StatCard } from "@/components/ui/StatCard";
+import { fetchSalesOverview, fetchTopDishes } from "@/lib/api/analytics";
+import { fetchTables } from "@/lib/api/tables";
+import { fetchKDSTickets } from "@/lib/api/kds";
+import { fetchLowStockIngredients } from "@/lib/api/inventory";
+import { Table, KOT } from "@/types/restaurant";
+import { wsClient } from "@/lib/api/websocket";
+
+export default function DashboardPage() {
+  const [revenue, setRevenue] = useState<number>(24850);
+  const [orderCount, setOrderCount] = useState<number>(42);
+  const [tables, setTables] = useState<Table[]>([]);
+  const [activeKots, setActiveKots] = useState<KOT[]>([]);
+  const [lowStockCount, setLowStockCount] = useState<number>(3);
+  const [topDishes, setTopDishes] = useState<Array<{ name: string; quantity: number; revenue: number }>>([
+    { name: "Butter Chicken", quantity: 28, revenue: 9520 },
+    { name: "Garlic Butter Naan", quantity: 64, revenue: 3840 },
+    { name: "Paneer Tikka Masala", quantity: 21, revenue: 6090 },
+    { name: "Dal Makhani", quantity: 18, revenue: 4680 },
+  ]);
+  const [loading, setLoading] = useState<boolean>(true);
+
+  useEffect(() => {
+    async function loadDashboardData() {
+      try {
+        const [overviewRes, tablesRes, kdsRes, lowStockRes, dishesRes] = await Promise.allSettled([
+          fetchSalesOverview(),
+          fetchTables(),
+          fetchKDSTickets(),
+          fetchLowStockIngredients(),
+          fetchTopDishes(),
+        ]);
+
+        if (overviewRes.status === "fulfilled" && overviewRes.value) {
+          if (overviewRes.value.today_revenue) setRevenue(Number(overviewRes.value.today_revenue));
+          if (overviewRes.value.orders_count) setOrderCount(Number(overviewRes.value.orders_count));
+        }
+
+        if (tablesRes.status === "fulfilled" && tablesRes.value) {
+          setTables(tablesRes.value);
+        }
+
+        if (kdsRes.status === "fulfilled" && kdsRes.value) {
+          setActiveKots(kdsRes.value);
+        }
+
+        if (lowStockRes.status === "fulfilled" && lowStockRes.value) {
+          setLowStockCount(lowStockRes.value.length);
+        }
+
+        if (dishesRes.status === "fulfilled" && dishesRes.value && dishesRes.value.length > 0) {
+          setTopDishes(dishesRes.value);
+        }
+      } catch (err) {
+        console.error("Error loading dashboard data:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadDashboardData();
+
+    wsClient.connect("rest-spice-jct");
+    const unsubscribe = wsClient.subscribe((evt) => {
+      if (
+        evt.type === "order_created" ||
+        evt.type === "order_updated" ||
+        evt.type === "kot_created" ||
+        evt.type === "kot_updated" ||
+        evt.type === "table_updated"
+      ) {
+        loadDashboardData();
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  const occupiedTables = tables.filter((t) => t.status === "occupied" || t.status === "billed");
+  const vacantTables = tables.filter((t) => t.status === "vacant");
+
+  return (
+    <div className="space-y-8 animate-in fade-in duration-200">
+      {/* Page Header */}
+      <PageHeader
+        category="Executive Intelligence"
+        title="Restaurant Control Center"
+        subtitle="Real-time operational overview, sales velocity, kitchen SLA, and floor status."
+        actions={
+          <div className="flex items-center gap-3">
+            <Link
+              href="/pos"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#E07A5F] hover:bg-[#d0694e] text-stone-950 font-bold text-xs shadow-md shadow-[#E07A5F]/20 transition-all hover:scale-105"
+            >
+              <Receipt className="w-4 h-4" />
+              <span>Open POS Terminal</span>
+            </Link>
+            <Link
+              href="/kds"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 font-semibold text-xs border border-stone-700/60 transition-all"
+            >
+              <UtensilsCrossed className="w-4 h-4 text-amber-400" />
+              <span>Kitchen Display</span>
+            </Link>
+          </div>
+        }
+      />
+
+      {/* KPI Stat Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          title="TODAY'S NET REVENUE"
+          value={`₹${revenue.toLocaleString("en-IN")}`}
+          subtitle="Tax & service charge inclusive"
+          icon={<TrendingUp className="w-5 h-5 text-emerald-400" />}
+          trend={{ value: "+14.2% vs yesterday", isPositive: true }}
+          highlight
+        />
+        <StatCard
+          title="ACTIVE DINE-IN OCCUPANCY"
+          value={`${occupiedTables.length} / ${tables.length || 12} Tables`}
+          subtitle={`${vacantTables.length} tables currently vacant`}
+          icon={<Grid3X3 className="w-5 h-5 text-blue-400" />}
+          trend={{ value: `${Math.round(((occupiedTables.length || 6) / (tables.length || 12)) * 100)}% Capacity`, isPositive: true }}
+        />
+        <StatCard
+          title="ORDERS COMPLETED"
+          value={orderCount}
+          subtitle="Avg order value: ₹591"
+          icon={<ShoppingBag className="w-5 h-5 text-purple-400" />}
+          trend={{ value: "4.8 orders/hr", isPositive: true }}
+        />
+        <StatCard
+          title="ACTIVE KITCHEN KOTS"
+          value={`${activeKots.length} Tickets`}
+          subtitle="Avg prep time: 11.4 mins"
+          icon={<Clock className="w-5 h-5 text-amber-400" />}
+          trend={{ value: "All within SLA", isPositive: true }}
+        />
+      </div>
+
+      {/* Operational Sections Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left 2 Cols: Floor & KDS Live Snapshot */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Floor Status Quick View */}
+          <div className="p-6 rounded-2xl bg-[#181514] border border-stone-800">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2.5">
+                <Grid3X3 className="w-5 h-5 text-[#E07A5F]" />
+                <h2 className="text-sm font-bold text-white uppercase tracking-wider">Live Floor Status</h2>
+              </div>
+              <Link href="/tables" className="text-xs text-[#E07A5F] hover:underline flex items-center gap-1 font-medium">
+                <span>Manage Floor</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+              {(tables.length > 0 ? tables : [
+                { id: "T-01", label: "T-01", status: "occupied", currentBill: 920 },
+                { id: "T-02", label: "T-02", status: "vacant", currentBill: 0 },
+                { id: "T-03", label: "T-03", status: "billed", currentBill: 1420 },
+                { id: "T-04", label: "T-04", status: "occupied", currentBill: 891 },
+                { id: "T-05", label: "T-05", status: "occupied", currentBill: 450 },
+                { id: "T-06", label: "T-06", status: "vacant", currentBill: 0 },
+              ]).slice(0, 12).map((tbl) => (
+                <Link
+                  key={tbl.id}
+                  href={`/pos`}
+                  className={`p-3 rounded-xl border flex flex-col justify-between transition-all hover:scale-105 ${
+                    tbl.status === "occupied"
+                      ? "bg-amber-950/20 border-amber-500/40 text-amber-200"
+                      : tbl.status === "billed"
+                      ? "bg-blue-950/20 border-blue-500/40 text-blue-200"
+                      : "bg-stone-900/60 border-stone-800 text-stone-400"
+                  }`}
+                >
+                  <span className="text-xs font-bold text-white">{tbl.label}</span>
+                  <div className="mt-2">
+                    <span className="text-[10px] uppercase font-mono block tracking-wider">
+                      {tbl.status}
+                    </span>
+                    {tbl.currentBill ? (
+                      <span className="text-[11px] font-bold text-emerald-400 block mt-0.5">
+                        ₹{tbl.currentBill}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-stone-600 block mt-0.5">—</span>
+                    )}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+
+          {/* Top Selling Dishes Velocity */}
+          <div className="p-6 rounded-2xl bg-[#181514] border border-stone-800">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2.5">
+                <UtensilsCrossed className="w-5 h-5 text-emerald-400" />
+                <h2 className="text-sm font-bold text-white uppercase tracking-wider">Today's Best Performers</h2>
+              </div>
+              <Link href="/analytics" className="text-xs text-stone-400 hover:text-white flex items-center gap-1">
+                <span>Detailed Sales</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+
+            <div className="divide-y divide-stone-800/80">
+              {topDishes.map((dish, idx) => (
+                <div key={idx} className="py-3 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="w-5 text-xs font-mono font-bold text-stone-500">#{idx + 1}</span>
+                    <div>
+                      <p className="text-xs font-semibold text-white">{dish.name}</p>
+                      <p className="text-[10px] text-stone-400">{dish.quantity} orders today</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-bold text-emerald-400">₹{dish.revenue.toLocaleString("en-IN")}</p>
+                    <p className="text-[10px] text-stone-500 font-mono">₹{Math.round(dish.revenue / dish.quantity)} avg</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Right Col: AI Pulse & Alerts */}
+        <div className="space-y-6">
+          {/* Chotu AI Daily Briefing Card */}
+          <div className="p-6 rounded-2xl bg-gradient-to-br from-[#1E1917] to-[#151211] border border-[#E07A5F]/30 relative overflow-hidden">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="p-1.5 rounded-lg bg-[#E07A5F]/20 text-[#E07A5F]">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <h2 className="text-xs font-bold uppercase tracking-wider text-[#F4A261] font-mono">
+                Chotu AI Operational Pulse
+              </h2>
+            </div>
+            <p className="text-xs text-stone-300 leading-relaxed mb-4">
+              "Peak dinner rush expected between <strong>20:30 and 22:00</strong>. Butter Chicken demand is trending 22% higher than average Thursday. Recommend pre-portioning 5kg poultry stock."
+            </p>
+            <Link
+              href="/insights"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#E07A5F] hover:text-[#f3957c] transition-colors"
+            >
+              <span>View full AI suggestions & waste alerts</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          {/* Low Stock Warning Card */}
+          <div className="p-6 rounded-2xl bg-[#181514] border border-stone-800">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2 text-rose-400">
+                <AlertTriangle className="w-4 h-4" />
+                <h3 className="text-xs font-bold uppercase tracking-wider font-mono">Stock Threshold Alerts</h3>
+              </div>
+              <span className="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-400 text-[10px] font-bold border border-rose-500/30">
+                {lowStockCount} items low
+              </span>
+            </div>
+
+            <div className="space-y-2.5">
+              <div className="p-2.5 rounded-xl bg-stone-900/80 border border-stone-800/80 flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-stone-200">Fresh Paneer (Cottage Cheese)</p>
+                  <p className="text-[10px] text-rose-400 font-mono">Remaining: 2.1 kg (Min: 5 kg)</p>
+                </div>
+                <Link
+                  href="/inventory"
+                  className="px-2.5 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-300 text-[11px] font-medium"
+                >
+                  Restock
+                </Link>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-stone-900/80 border border-stone-800/80 flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-stone-200">Amul Butter Salted</p>
+                  <p className="text-[10px] text-amber-400 font-mono">Remaining: 3.4 kg (Min: 6 kg)</p>
+                </div>
+                <Link
+                  href="/inventory"
+                  className="px-2.5 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-300 text-[11px] font-medium"
+                >
+                  Restock
+                </Link>
+              </div>
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-stone-800 text-center">
+              <Link href="/inventory" className="text-xs text-stone-400 hover:text-white transition-colors">
+                Open Inventory Ledger & Supplier POs →
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

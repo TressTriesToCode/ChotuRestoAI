@@ -1,0 +1,68 @@
+import { apiFetch } from "./client";
+
+export interface IngredientStock {
+  id: string;
+  name: string;
+  unit: string;
+  current_stock: number;
+  reorder_threshold: number;
+  min_reorder_level: number;
+  cost_per_unit: number;
+  is_low_stock: boolean;
+  supplier_name?: string;
+  status?: "In Stock" | "Low Stock" | "Out of Stock";
+  last_updated?: string;
+}
+
+export interface StockAdjustmentPayload {
+  quantity?: number;
+  quantity_delta?: number;
+  transaction_type?: "intake" | "wastage" | "adjustment";
+  notes?: string;
+  reason?: string;
+}
+
+export async function fetchIngredients(): Promise<IngredientStock[]> {
+  const data = await apiFetch<any[]>("/inventory/ingredients");
+  return data.map((item) => ({
+    id: item.id,
+    name: item.name,
+    unit: item.unit,
+    current_stock: Number(item.current_stock),
+    reorder_threshold: Number(item.reorder_threshold),
+    min_reorder_level: Number(item.reorder_threshold ?? item.min_reorder_level ?? 5),
+    cost_per_unit: Number(item.cost_per_unit),
+    is_low_stock: Boolean(item.is_low_stock),
+    supplier_name: item.supplier_name,
+    status: item.is_low_stock ? "Low Stock" : Number(item.current_stock) <= 0 ? "Out of Stock" : "In Stock",
+  }));
+}
+
+export async function adjustIngredientStock(
+  ingredientId: string,
+  payload: StockAdjustmentPayload
+): Promise<IngredientStock> {
+  const body = {
+    quantity: payload.quantity !== undefined ? payload.quantity : (payload.quantity_delta ?? 0),
+    transaction_type: payload.transaction_type || "adjustment",
+    notes: payload.notes || payload.reason || "Stock update via Inventory Hub",
+  };
+  return await apiFetch<IngredientStock>(`/inventory/ingredients/${ingredientId}/adjust`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function fetchStockAlerts(): Promise<any[]> {
+  return await apiFetch<any[]>("/inventory/alerts");
+}
+
+export async function fetchLowStockIngredients(): Promise<IngredientStock[]> {
+  try {
+    const all = await fetchIngredients();
+    return all.filter((i) => i.is_low_stock || i.current_stock <= i.min_reorder_level);
+  } catch {
+    return [];
+  }
+}
+
