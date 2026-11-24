@@ -66,3 +66,10 @@ export async function assignTableWaiter(tableId: string, waiterId: string | null
   return mapBackendTable(data);
 }
 
+export async function regenerateTableQR(tableId: string): Promise<Table> {
+  const data = await apiFetch<BackendTable>(`/tables/${tableId}/regenerate-qr`, {
+    method: "POST",
+  });
+  return mapBackendTable(data);
+}
+

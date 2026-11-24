@@ -24,7 +24,12 @@ class OrderService:
         """
         Ensures each table has its own unique, independent active order.
         """
-        table = db.query(DiningTable).filter(DiningTable.id == table_id, DiningTable.restaurant_id == restaurant_id).first()
+        # Acquire exclusive row lock on PostgreSQL to safely serialize concurrent orders
+        table_q = db.query(DiningTable).filter(DiningTable.id == table_id, DiningTable.restaurant_id == restaurant_id)
+        if db.bind and db.bind.dialect.name == "postgresql":
+            table = table_q.with_for_update().first()
+        else:
+            table = table_q.first()
         if not table:
             raise ValueError(f"Table {table_id} not found")
 
@@ -142,17 +147,30 @@ class OrderService:
                 table.current_bill = total
 
     @staticmethod
-    def fire_kot(db: Session, order_id: str, captain_notes: Optional[str] = None) -> KOT:
+    def fire_kot(
+        db: Session,
+        order_id: str,
+        captain_notes: Optional[str] = None,
+        items_to_fire: Optional[List[Any]] = None
+    ) -> KOT:
         order = db.query(Order).filter(Order.id == order_id).first()
         if not order:
             raise ValueError("Order not found")
             
-        items = db.query(OrderItem).filter(OrderItem.order_id == order_id).all()
+        if items_to_fire is not None:
+            items = items_to_fire
+        else:
+            items = db.query(OrderItem).filter(OrderItem.order_id == order_id).all()
+
         if not items:
             raise ValueError("Cannot fire KOT with empty order")
 
-        # Get next sequential KOT number
-        last_kot = db.query(KOT).filter(KOT.restaurant_id == order.restaurant_id).order_by(KOT.kot_number.desc()).first()
+        # Get next sequential KOT number atomically on PostgreSQL
+        last_kot_q = db.query(KOT).filter(KOT.restaurant_id == order.restaurant_id).order_by(KOT.kot_number.desc())
+        if db.bind and db.bind.dialect.name == "postgresql":
+            last_kot = last_kot_q.with_for_update().first()
+        else:
+            last_kot = last_kot_q.first()
         next_kot_num = (last_kot.kot_number + 1) if last_kot else 1001
 
         table_label = order.table.label if order.table else "Delivery/Takeaway"
@@ -170,10 +188,11 @@ class OrderService:
         db.flush()
 
         for it in items:
+            dish_id_val = getattr(it, "menu_item_id", getattr(it, "dish_id", None))
             kot_item = KOTItem(
                 id=f"ki-{uuid.uuid4().hex[:10]}",
                 kot_id=kot.id,
-                dish_id=it.menu_item_id,
+                dish_id=dish_id_val,
                 name=it.name,
                 quantity=it.quantity,
                 dietary=it.dietary,
@@ -182,7 +201,7 @@ class OrderService:
             )
             db.add(kot_item)
 
-        # Automatically consume inventory ingredients for these dishes!
+        # Automatically consume inventory ingredients ONLY for items being fired!
         InventoryService.deduct_stock_for_order(db, order.restaurant_id, items, order.id)
 
         db.commit()

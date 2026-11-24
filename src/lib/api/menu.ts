@@ -51,15 +51,22 @@ const DISH_IMAGE_MAP: Record<string, string> = {
 };
 
 export function mapBackendMenuItem(item: BackendMenuItem): MenuItem {
+  const isAvailable = (item as any).is_in_stock !== undefined
+    ? Boolean((item as any).is_in_stock)
+    : (item.in_stock !== undefined ? Boolean(item.in_stock) : true);
+
+  const rawCat = item.category || (item as any).category_id || "mains";
+  const cleanCat = String(rawCat).replace(/^cat-/, "") as any;
+
   return {
     id: item.id,
     name: item.name,
-    category: item.category,
+    category: cleanCat,
     description: item.description,
     price: Number(item.price),
     dietary: item.dietary,
     station: item.station,
-    inStock: item.in_stock,
+    inStock: isAvailable,
     spiceLevel: item.spice_level,
     bestseller: item.bestseller,
     image: item.photo_url || DISH_IMAGE_MAP[item.id] || "https://images.unsplash.com/photo-1546833999-b9f581a1996d?auto=format&fit=crop&w=500&q=80",

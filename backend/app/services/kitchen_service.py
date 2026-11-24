@@ -31,6 +31,7 @@ class KitchenService:
             raise ValueError("KOT not found")
         kot.status = KOTStatus.BUMPED
         kot.completed_at = datetime.now(timezone.utc)
+        db.flush()
         
         # Check if all KOTs for the associated order are completed, update order status to READY
         order = db.query(Order).filter(Order.id == kot.order_id).first()

@@ -10,6 +10,7 @@ def test_qr_menu_and_order_flow(client):
     assert menu_resp.status_code == 200
     data = menu_resp.json()
     assert data["table_label"] == "T-04"
+    assert data["table_status"] in ["vacant", "occupied"]
     assert len(data["items"]) >= 10
 
     # 2. Submit QR order
@@ -49,3 +50,79 @@ def test_qr_menu_and_order_flow(client):
     assert kds_resp.status_code == 200
     tickets = kds_resp.json()
     assert any(t["table_id"] == "T-04" for t in tickets)
+
+
+def test_qr_table_info_endpoint(client):
+    """Verify GET /api/v1/qr/{token}/table returns accurate restaurant and table details."""
+    resp = client.get("/api/v1/qr/qr-t01-demo/table")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["table_id"] == "T-01"
+    assert data["restaurant_name"] == "The Spice Junction"
+    assert "capacity" in data
+    assert data["qr_token"] == "qr-t01-demo"
+
+
+def test_qr_invalid_tokens_return_404(client):
+    """Verify invalid or non-existent tokens return 404."""
+    for path in ["/api/v1/qr/invalid-fake-token/menu", "/api/v1/qr/invalid-fake-token/table"]:
+        resp = client.get(path)
+        assert resp.status_code == 404
+        assert "Invalid or expired QR token" in resp.json()["detail"]
+
+
+def test_qr_out_of_stock_item_rejected(client, db_session):
+    """Verify that ordering an out-of-stock item is rejected with HTTP 400."""
+    from app.models.menu import MenuItem
+    dish = db_session.query(MenuItem).filter(MenuItem.id == "dish-02").first()
+    dish.is_in_stock = False
+    db_session.commit()
+
+    resp = client.post(
+        "/api/v1/qr/qr-t01-demo/orders",
+        json={
+            "customer_name": "Test Guest",
+            "items": [
+                {
+                    "dish_id": "dish-02",
+                    "name": "Paneer Tikka Masala",
+                    "price": 290.0,
+                    "quantity": 1,
+                    "dietary": "veg",
+                    "station": "curry"
+                }
+            ]
+        }
+    )
+    assert resp.status_code == 400
+    assert "out of stock" in resp.json()["detail"].lower()
+
+
+def test_table_qr_regeneration_flow(client, db_session):
+    """Verify POST /api/v1/tables/{table_id}/regenerate-qr invalidates old token and assigns new token."""
+    from app.models.user import User, UserRole
+    from app.core.security import create_access_token
+    manager = db_session.query(User).filter(User.role == UserRole.MANAGER).first()
+    token = create_access_token(subject=manager.id, extra_claims={"role": manager.role.value, "restaurant_id": manager.restaurant_id})
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. Old token works initially
+    resp1 = client.get("/api/v1/qr/qr-t03-demo/table")
+    assert resp1.status_code == 200
+
+    # 2. Regenerate QR token for T-03
+    regen_resp = client.post("/api/v1/tables/T-03/regenerate-qr", headers=headers)
+    assert regen_resp.status_code == 200
+    table_data = regen_resp.json()
+    new_token = table_data["qr_token"]
+    assert new_token != "qr-t03-demo"
+    assert new_token.startswith("chotu_qr_")
+
+    # 3. Old token now fails with 404
+    resp_old = client.get("/api/v1/qr/qr-t03-demo/table")
+    assert resp_old.status_code == 404
+
+    # 4. New token succeeds
+    resp_new = client.get(f"/api/v1/qr/{new_token}/table")
+    assert resp_new.status_code == 200
+    assert resp_new.json()["table_id"] == "T-03"

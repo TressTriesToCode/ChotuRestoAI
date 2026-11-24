@@ -46,6 +46,8 @@ htmlcov/
 *.sqlite
 *.sqlite3
 *.db-journal
+database/backups/
+*.sql.bak
 
 # Environment Variables & Secrets
 .env

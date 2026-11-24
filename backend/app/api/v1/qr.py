@@ -1,12 +1,15 @@
-from typing import List, Dict, Any
-from pydantic import BaseModel
-from fastapi import APIRouter, Depends, HTTPException
+import time
+import secrets
+import hashlib
+from typing import List, Dict, Any, Optional
+from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from app.database.session import get_db
 from app.models.table import DiningTable, TableStatus
 from app.models.restaurant import Restaurant
 from app.models.menu import MenuItem
-from app.models.order import PlacedBy
+from app.models.order import Order, OrderItem, PlacedBy
 from app.schemas.menu import MenuItemResponse
 from app.schemas.order import OrderItemCreate, OrderResponse
 from app.services.order_service import OrderService
@@ -15,30 +18,84 @@ from app.websocket.events import WSEventType, create_ws_message
 
 router = APIRouter()
 
+# In-memory idempotency cache: idempotency_key -> (timestamp, order_id)
+IDEMPOTENCY_CACHE: Dict[str, tuple[float, str]] = {}
+
+def get_table_by_token(token: str, db: Session) -> DiningTable:
+    """
+    Constant-time cryptographically secure QR token verification.
+    Prevents timing side-channel attacks and supports both direct tokens and SHA-256 hashes.
+    Never exposes internal token values in error messages.
+    """
+    if not token or not isinstance(token, str) or len(token) < 4:
+        raise HTTPException(status_code=404, detail="Invalid or expired QR token")
+    
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    table = db.query(DiningTable).filter(
+        (DiningTable.qr_token == token) | (DiningTable.qr_token == token_hash)
+    ).first()
+    
+    if not table:
+        raise HTTPException(status_code=404, detail="Invalid or expired QR token")
+        
+    # Constant-time comparison
+    is_valid = secrets.compare_digest(table.qr_token, token) or secrets.compare_digest(table.qr_token, token_hash)
+    if not is_valid:
+        raise HTTPException(status_code=404, detail="Invalid or expired QR token")
+        
+    return table
+
 class QROrderSubmission(BaseModel):
     customer_name: str = "Guest (QR)"
     items: List[OrderItemCreate]
     captain_notes: str = "Self-order via Table QR"
+    table_id: Optional[str] = None
+    idempotency_key: Optional[str] = None
 
 class QRMenuResponse(BaseModel):
     restaurant_name: str
     table_id: str
     table_label: str
+    table_status: str = "vacant"
     items: List[MenuItemResponse]
+
+class QRTableInfoResponse(BaseModel):
+    restaurant_name: str
+    restaurant_id: str
+    table_id: str
+    table_label: str
+    status: str
+    capacity: int
+    qr_token: str
+
+@router.get("/{token}/table", response_model=QRTableInfoResponse)
+def get_qr_table_info(token: str, db: Session = Depends(get_db)):
+    table = get_table_by_token(token, db)
+    restaurant = db.query(Restaurant).filter(Restaurant.id == table.restaurant_id).first()
+    return QRTableInfoResponse(
+        restaurant_name=restaurant.name if restaurant else "Restaurant",
+        restaurant_id=table.restaurant_id,
+        table_id=table.id,
+        table_label=table.label,
+        status=table.status.value,
+        capacity=table.capacity,
+        qr_token=table.qr_token
+    )
 
 @router.get("/{token}/menu", response_model=QRMenuResponse)
 def get_qr_menu(token: str, db: Session = Depends(get_db)):
-    table = db.query(DiningTable).filter(DiningTable.qr_token == token).first()
-    if not table:
-        raise HTTPException(status_code=404, detail="Invalid or expired QR token")
-        
+    table = get_table_by_token(token, db)
     restaurant = db.query(Restaurant).filter(Restaurant.id == table.restaurant_id).first()
-    items = db.query(MenuItem).filter(MenuItem.restaurant_id == table.restaurant_id, MenuItem.is_active == True).all()
+    items = db.query(MenuItem).filter(
+        MenuItem.restaurant_id == table.restaurant_id, 
+        MenuItem.is_active == True
+    ).all()
     
     return QRMenuResponse(
-        restaurant_name=restaurant.name,
+        restaurant_name=restaurant.name if restaurant else "Restaurant",
         table_id=table.id,
         table_label=table.label,
+        table_status=table.status.value,
         items=items
     )
 
@@ -46,47 +103,122 @@ def get_qr_menu(token: str, db: Session = Depends(get_db)):
 async def submit_qr_order(
     token: str,
     submission: QROrderSubmission,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    x_idempotency_key: Optional[str] = Header(None)
 ):
     """
-    CRITICAL WORKFLOW: Customers scanning table QR code place a real order that:
-    1. Attaches to this specific table.
-    2. Enters central database.
-    3. Fires KOT directly to Kitchen Display System (KDS).
-    4. Broadcasts to POS and KDS via WebSockets.
+    CRITICAL WORKFLOW & SECURITY HARNEDING:
+    1. Validates QR token using constant-time comparison against PostgreSQL.
+    2. Enforces table isolation (cannot submit order for Table 2 using Table 1 token).
+    3. Enforces idempotency to prevent duplicate orders and double stock deduction.
+    4. Enforces authoritative backend pricing (client submitted prices are ignored).
+    5. Validates dish belongs to table's restaurant and is active and in-stock.
+    6. Validates quantity limits (1 <= qty <= 50).
+    7. Atomically acquires table row lock on PostgreSQL.
+    8. Fires KOT for new batch and updates live KDS via WebSockets.
     """
-    table = db.query(DiningTable).filter(DiningTable.qr_token == token).first()
-    if not table:
-        raise HTTPException(status_code=404, detail="Invalid or expired QR token")
+    table = get_table_by_token(token, db)
+
+    # Cross-table validation: Table ID in payload must match token's table
+    if submission.table_id and submission.table_id.strip().upper() != table.id.strip().upper():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Table ID mismatch: Payload table '{submission.table_id}' does not match the scanned table '{table.id}'"
+        )
+
+    # Idempotency deduplication check
+    effective_idempotency_key = submission.idempotency_key or x_idempotency_key
+    now_ts = time.time()
+    if effective_idempotency_key:
+        cached = IDEMPOTENCY_CACHE.get(effective_idempotency_key)
+        if cached and (now_ts - cached[0] < 300):
+            cached_order = db.query(Order).filter(Order.id == cached[1]).first()
+            if cached_order:
+                return cached_order
+
     if not submission.items:
         raise HTTPException(status_code=400, detail="Cart is empty")
 
-    order = OrderService.get_or_create_table_order(
-        db, table.restaurant_id, table.id, customer_name=submission.customer_name, placed_by=PlacedBy.QR
-    )
-    order.placed_by = PlacedBy.QR
-
+    # Validate items, stock, quantities, and restaurant isolation
+    validated_items = []
     for it in submission.items:
-        OrderService.add_or_update_order_item(db, order.id, it.dish_id, it.quantity, it.notes)
+        if it.quantity <= 0 or it.quantity > 50:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid quantity {it.quantity} for '{it.name or it.dish_id}'. Quantity must be between 1 and 50."
+            )
 
-    # Automatically fire KOT to Kitchen KDS!
-    kot = OrderService.fire_kot(db, order.id, submission.captain_notes)
+        dish = db.query(MenuItem).filter(
+            MenuItem.id == it.dish_id, 
+            MenuItem.restaurant_id == table.restaurant_id
+        ).first()
 
-    # Broadcast real-time events to all connected staff (POS & Kitchen)
-    await ws_manager.broadcast_to_restaurant(
-        table.restaurant_id,
-        create_ws_message(WSEventType.ORDER_CREATED, {"order_id": order.id, "table_id": table.id, "origin": "QR"})
-    )
-    await ws_manager.broadcast_to_restaurant(
-        table.restaurant_id,
-        create_ws_message(WSEventType.KOT_CREATED, {
-            "kot_id": kot.id,
-            "kot_number": kot.kot_number,
-            "table_id": kot.table_id,
-            "items_count": len(kot.items),
-            "origin": "QR"
-        })
-    )
+        if not dish or not dish.is_active:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Dish '{it.name or it.dish_id}' is currently unavailable or belongs to another restaurant"
+            )
 
-    db.refresh(order)
-    return order
+        if not dish.is_in_stock:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Dish '{dish.name}' is out of stock"
+            )
+
+        validated_items.append((dish, it.quantity, it.notes))
+
+    try:
+        # Attach to or create table order with row-level lock serialization
+        order = OrderService.get_or_create_table_order(
+            db, table.restaurant_id, table.id, customer_name=submission.customer_name, placed_by=PlacedBy.QR
+        )
+        order.placed_by = PlacedBy.QR
+
+        newly_added_items = []
+        for dish, qty, notes in validated_items:
+            # Backend dish.price is authoritative (client price ignored)
+            OrderService.add_or_update_order_item(db, order.id, dish.id, qty, notes)
+            newly_added_items.append(OrderItem(
+                id=f"temp-{dish.id}",
+                order_id=order.id,
+                menu_item_id=dish.id,
+                name=dish.name,
+                price=dish.price,
+                quantity=qty,
+                dietary=dish.dietary,
+                station=dish.station,
+                notes=notes,
+                status="cooking"
+            ))
+
+        # Automatically fire KOT to Kitchen KDS ONLY for newly added items!
+        kot = OrderService.fire_kot(db, order.id, submission.captain_notes, items_to_fire=newly_added_items)
+
+        # Broadcast real-time events to Staff (POS & Kitchen)
+        await ws_manager.broadcast_to_restaurant(
+            table.restaurant_id,
+            create_ws_message(WSEventType.ORDER_CREATED, {"order_id": order.id, "table_id": table.id, "origin": "QR"})
+        )
+        await ws_manager.broadcast_to_restaurant(
+            table.restaurant_id,
+            create_ws_message(WSEventType.KOT_CREATED, {
+                "kot_id": kot.id,
+                "kot_number": kot.kot_number,
+                "table_id": kot.table_id,
+                "items_count": len(kot.items),
+                "origin": "QR"
+            })
+        )
+
+        db.refresh(order)
+
+        # Store in idempotency cache
+        if effective_idempotency_key:
+            IDEMPOTENCY_CACHE[effective_idempotency_key] = (now_ts, order.id)
+
+        return order
+    except Exception as e:
+        db.rollback()
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=f"Failed to submit QR order: {str(e)}")

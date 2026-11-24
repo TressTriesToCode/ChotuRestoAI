@@ -13,7 +13,10 @@ class InventoryService:
         Deducts raw ingredient stock based on recipe items configured for each menu item.
         """
         for item in order_items:
-            recipe_items = db.query(RecipeItem).filter(RecipeItem.menu_item_id == item.menu_item_id).all()
+            m_id = getattr(item, "menu_item_id", None) or getattr(item, "dish_id", None)
+            if not m_id:
+                continue
+            recipe_items = db.query(RecipeItem).filter(RecipeItem.menu_item_id == m_id).all()
             for r_item in recipe_items:
                 ingredient = db.query(Ingredient).filter(Ingredient.id == r_item.ingredient_id).first()
                 if ingredient:
@@ -34,7 +37,7 @@ class InventoryService:
                     
                     # If ingredient reaches 0 or below, automatically toggle dish out-of-stock
                     if ingredient.current_stock <= 0:
-                        dish = db.query(MenuItem).filter(MenuItem.id == item.menu_item_id).first()
+                        dish = db.query(MenuItem).filter(MenuItem.id == m_id).first()
                         if dish:
                             dish.is_in_stock = False
 

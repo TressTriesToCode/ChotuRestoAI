@@ -8,6 +8,7 @@ from app.models.menu import MenuCategory, MenuItem, DietaryType, StationType
 from app.models.inventory import Ingredient, RecipeItem
 from app.models.order import Order, OrderItem, OrderMode, OrderStatus, PaymentStatus, PlacedBy
 from app.models.kot import KOT, KOTItem, KOTStatus
+from app.models.supplier import Supplier
 from app.core.security import get_password_hash
 from app.core.permissions import UserRole
 
@@ -27,16 +28,23 @@ def init_demo_db(db: Session):
         currency="INR",
         cgst_percent=Decimal("2.50"),
         sgst_percent=Decimal("2.50"),
-        service_charge_percent=Decimal("5.00")
+        service_charge_percent=Decimal("5.00"),
+        gstin="27AABCT3518Q1ZP",
+        fssai_number="11521001000452",
+        business_hours="11:30 AM - 11:30 PM",
+        upi_vpa="thespicejunction@icici",
+        invoice_prefix="SJ-INV"
     )
     db.add(rest)
     db.flush()
 
-    # 2. Users
+    # 2. Users (Owner, Manager, Cashier, Chef, Waiter)
     users_data = [
+        ("user-own-01", "owner@spicejunction.in", "Aditya Hirekar (Owner)", UserRole.OWNER),
         ("user-mgr-01", "manager@spicejunction.in", "Rahul Sharma (Manager)", UserRole.MANAGER),
         ("user-csh-01", "cashier@spicejunction.in", "Deepak Nair (Cashier)", UserRole.CASHIER),
         ("user-chef-01", "chef@spicejunction.in", "Chef Vikram Rawat", UserRole.KITCHEN_STAFF),
+        ("user-wtr-01", "waiter@spicejunction.in", "Gaurav Mane (Captain/Waiter)", UserRole.WAITER),
     ]
     for uid, email, name, role in users_data:
         u = User(
@@ -124,7 +132,7 @@ def init_demo_db(db: Session):
         ("ing-02", "Fresh Malai Paneer", "kg", Decimal("14.000"), Decimal("3.000"), Decimal("340.00"), "Gokul Dairy Mumbai"),
         ("ing-03", "Black Urad Dal Bukhara", "kg", Decimal("25.000"), Decimal("5.000"), Decimal("140.00"), "APMC Grain Market Vashi"),
         ("ing-04", "Premium Sharbati Maida", "kg", Decimal("45.000"), Decimal("10.000"), Decimal("45.00"), "Silver Wheat Mills"),
-        ("ing-05", "Heavy Dairy Cream & Butter", "kg", Decimal("2.400"), Decimal("5.000"), Decimal("480.00"), "Amul B2B Distribution"),  # Low stock!
+        ("ing-05", "Heavy Dairy Cream & Butter", "kg", Decimal("2.400"), Decimal("5.000"), Decimal("480.00"), "Amul B2B Distribution"),  # Low stock for alert tests!
         ("ing-06", "Aged Basmati Rice 1121", "kg", Decimal("35.000"), Decimal("8.000"), Decimal("125.00"), "Daawat Select APMC"),
         ("ing-07", "Khoya Mawa / Reduced Milk", "kg", Decimal("3.500"), Decimal("2.000"), Decimal("360.00"), "Bandra Sweet Mart Supplies"),
     ]
@@ -162,7 +170,7 @@ def init_demo_db(db: Session):
         )
         db.add(r)
 
-    # 8. Initial Order for Table T-04
+    # 8. Initial Order for Table T-04 (Needed for unit tests: test_kds, test_pos)
     ord_t4 = Order(
         id="ord-demo-t04",
         restaurant_id=rest.id,
@@ -210,7 +218,7 @@ def init_demo_db(db: Session):
         )
         db.add(oit)
 
-    # Initial KOT for T-04
+    # Initial KOT for T-04 (Needed for test_kds)
     kot_t4 = KOT(
         id="kot-1042",
         restaurant_id=rest.id,
@@ -237,75 +245,25 @@ def init_demo_db(db: Session):
         )
         db.add(kit)
 
-    # 9. Additional Live Orders (Indian Context: Zomato, Swiggy, Takeaway, Delivery)
-    additional_orders = [
-        (
-            "ord-demo-002", "T 2 - 7", "IND-20261122-0002", "Pooja Hegde", "+91 98200 44321",
-            OrderMode.DINE_IN, "T-01", None, OrderStatus.PREPARING, PaymentStatus.PENDING,
-            Decimal("920.00"), "dish-03", "Dal Makhani Bukhara", 2, Decimal("240.00")
-        ),
-        (
-            "ord-demo-003", "TK-105", "IND-20261122-0003", "Vikram Malhotra", "+91 98202 99887",
-            OrderMode.TAKEAWAY, None, None, OrderStatus.PREPARING, PaymentStatus.PAID,
-            Decimal("580.00"), "dish-06", "Hyderabadi Dum Gosht Biryani", 1, Decimal("390.00")
-        ),
-        (
-            "ord-demo-004", "ZOM-8821", "IND-20261122-0004", "Ananya Deshmukh", "+91 98203 11223",
-            OrderMode.ZOMATO, None, "Flat 402, Sea Breeze Apts, Bandra West, Mumbai",
-            OrderStatus.PREPARING, PaymentStatus.PAID, Decimal("1140.00"), "dish-01", "Butter Chicken (Boneless)", 2, Decimal("340.00")
-        ),
-        (
-            "ord-demo-005", "SWIG-4412", "IND-20261122-0005", "Karan Singhania", "+91 98204 77665",
-            OrderMode.SWIGGY, None, "12 Hill Road, Bandra West, Mumbai",
-            OrderStatus.COMPLETED, PaymentStatus.PAID, Decimal("640.00"), "dish-07", "Amritsari Paneer Tikka (6 pcs)", 2, Decimal("280.00")
-        )
+    # 9. Genuine Commercial Suppliers
+    suppliers_data = [
+        ("sup-01", "Gokul Dairy Mumbai", "Gokul Prasad", "+91 98201 11222", "gokul@dairy.in", "Dadar East, Mumbai", "27AABCG1234D1Z5"),
+        ("sup-02", "Bandra Fresh Poultry", "Aslam Sheikh", "+91 98202 33444", "aslam@freshpoultry.in", "Bandra West, Mumbai", "27AABCS5678E1Z8"),
+        ("sup-03", "Silver Wheat Mills", "Harish Shah", "+91 98203 55666", "harish@silvermills.in", "APMC Vashi, Navi Mumbai", "27AABCH9012F1Z1"),
+        ("sup-04", "Amul B2B Distribution", "Kiran Patel", "+91 98204 77888", "amulb2b@distribution.in", "Kurla West, Mumbai", "27AABCA3456G1Z4"),
     ]
-    for oid, onum, otok, ocust, ophone, omode, otbl, oaddr, ostatus, opstatus, ototal, odish, odname, oqty, odprice in additional_orders:
-        item_subtotal = Decimal(str(odprice)) * Decimal(str(oqty))
-        cgst_amt = (item_subtotal * Decimal("0.025")).quantize(Decimal("0.01"))
-        sgst_amt = (item_subtotal * Decimal("0.025")).quantize(Decimal("0.01"))
-        sc_amt = (item_subtotal * Decimal("0.05")).quantize(Decimal("0.01"))
-        calc_total = item_subtotal + cgst_amt + sgst_amt + sc_amt
-
-        ord_obj = Order(
-            id=oid,
+    for sid, sname, cperson, sphone, semail, saddr, sgst in suppliers_data:
+        sup = Supplier(
+            id=sid,
             restaurant_id=rest.id,
-            table_id=otbl,
-            order_number=onum,
-            token_number=otok,
-            customer_name=ocust,
-            customer_phone=ophone,
-            mode=omode,
-            delivery_address=oaddr,
-            status=ostatus,
-            payment_status=opstatus,
-            placed_by=PlacedBy.AGGREGATOR if omode in (OrderMode.ZOMATO, OrderMode.SWIGGY) else PlacedBy.POS,
-            subtotal=item_subtotal,
-            cgst=cgst_amt,
-            sgst=sgst_amt,
-            service_charge=sc_amt,
-            discount=Decimal("0.00"),
-            total_amount=calc_total,
-            aggregator_platform="zomato" if omode == OrderMode.ZOMATO else "swiggy" if omode == OrderMode.SWIGGY else None,
-            aggregator_order_id=f"ZOM-{onum}" if omode == OrderMode.ZOMATO else f"SWIG-{onum}" if omode == OrderMode.SWIGGY else None,
-            aggregator_rider_name="Santosh Yadav" if omode in (OrderMode.ZOMATO, OrderMode.SWIGGY) else None,
-            aggregator_rider_status="Rider assigned • Reaching in 5 mins" if omode in (OrderMode.ZOMATO, OrderMode.SWIGGY) else None,
-            aggregator_otp="4821" if omode in (OrderMode.ZOMATO, OrderMode.SWIGGY) else None
+            name=sname,
+            contact_person=cperson,
+            phone=sphone,
+            email=semail,
+            address=saddr,
+            gst_number=sgst,
+            is_active=True
         )
-        db.add(ord_obj)
-        db.flush()
-
-        oit = OrderItem(
-            id=f"item-{oid[-3:]}",
-            order_id=ord_obj.id,
-            menu_item_id=odish,
-            name=odname,
-            price=odprice,
-            quantity=oqty,
-            dietary=DietaryType.NONVEG if "Chicken" in odname or "Biryani" in odname else DietaryType.VEG,
-            station=StationType.CURRY if "Chicken" in odname or "Dal" in odname or "Biryani" in odname else StationType.TANDOOR,
-            status="cooking"
-        )
-        db.add(oit)
+        db.add(sup)
 
     db.commit()
