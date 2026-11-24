@@ -224,6 +224,10 @@ class OrderService:
                 table.current_bill = Decimal("0.00")
                 table.captain_name = None
 
+        # Automatic CRM Loyalty Points Accumulation (Phase 4)
+        from app.services.crm_service import CRMService
+        CRMService.award_points_for_order(db, order)
+
         db.commit()
         db.refresh(order)
         return order

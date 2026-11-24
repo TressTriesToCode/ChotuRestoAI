@@ -9,10 +9,47 @@ class UserRole(str, Enum):
 
 ROLE_PERMISSIONS = {
     UserRole.OWNER: ["*"],
-    UserRole.MANAGER: ["pos:*", "menu:*", "orders:*", "kds:*", "inventory:*", "analytics:*", "ai:*", "tables:*"],
-    UserRole.CASHIER: ["pos:*", "orders:*", "tables:*", "payments:*"],
-    UserRole.KITCHEN_STAFF: ["kds:*", "orders:read", "inventory:read"],
-    UserRole.WAITER: ["pos:orders", "tables:read", "tables:status"],
+    UserRole.MANAGER: [
+        "settings:read",
+        "settings:update",
+        "staff:*",
+        "pos:*",
+        "menu:*",
+        "orders:*",
+        "kds:*",
+        "inventory:*",
+        "suppliers:*",
+        "crm:*",
+        "delivery:*",
+        "analytics:*",
+        "ai:*",
+        "tables:*",
+        "notifications:*",
+    ],
+    UserRole.CASHIER: [
+        "pos:*",
+        "orders:*",
+        "tables:*",
+        "payments:*",
+        "delivery:read",
+        "delivery:dispatch",
+        "crm:*",
+        "notifications:read",
+    ],
+    UserRole.WAITER: [
+        "pos:orders",
+        "tables:read",
+        "tables:status",
+        "tables:assign",
+        "crm:read",
+        "notifications:read",
+    ],
+    UserRole.KITCHEN_STAFF: [
+        "kds:*",
+        "orders:read",
+        "inventory:read",
+        "notifications:read",
+    ],
 }
 
 def has_permission(role: UserRole, required_perm: str) -> bool:

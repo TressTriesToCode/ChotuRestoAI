@@ -53,13 +53,13 @@ def init_demo_db(db: Session):
 
     # 3. Dining Tables
     tables_data = [
-        ("T-01", "T-01", 2, TableStatus.OCCUPIED, Decimal("920.00"), "Ramesh K.", "19:45"),
+        ("T-01", "T-01", 2, TableStatus.VACANT, Decimal("0.00"), None, None),
         ("T-02", "T-02", 4, TableStatus.VACANT, Decimal("0.00"), None, None),
-        ("T-03", "T-03", 6, TableStatus.BILLED, Decimal("1420.00"), "Vikram S.", "19:10"),
+        ("T-03", "T-03", 6, TableStatus.VACANT, Decimal("0.00"), None, None),
         ("T-04", "T-04", 4, TableStatus.OCCUPIED, Decimal("891.00"), "Ramesh K.", "20:05"),
-        ("T-05", "T-05", 2, TableStatus.OCCUPIED, Decimal("450.00"), "Deepak N.", "20:20"),
+        ("T-05", "T-05", 2, TableStatus.VACANT, Decimal("0.00"), None, None),
         ("T-06", "T-06", 8, TableStatus.RESERVED, Decimal("0.00"), None, None),
-        ("T-07", "T-07", 4, TableStatus.OCCUPIED, Decimal("780.00"), "Ramesh K.", "20:25"),
+        ("T-07", "T-07", 4, TableStatus.VACANT, Decimal("0.00"), None, None),
         ("T-08", "T-08", 4, TableStatus.VACANT, Decimal("0.00"), None, None),
     ]
     for tid, label, cap, stat, bill, capt, opened in tables_data:
@@ -261,6 +261,12 @@ def init_demo_db(db: Session):
         )
     ]
     for oid, onum, otok, ocust, ophone, omode, otbl, oaddr, ostatus, opstatus, ototal, odish, odname, oqty, odprice in additional_orders:
+        item_subtotal = Decimal(str(odprice)) * Decimal(str(oqty))
+        cgst_amt = (item_subtotal * Decimal("0.025")).quantize(Decimal("0.01"))
+        sgst_amt = (item_subtotal * Decimal("0.025")).quantize(Decimal("0.01"))
+        sc_amt = (item_subtotal * Decimal("0.05")).quantize(Decimal("0.01"))
+        calc_total = item_subtotal + cgst_amt + sgst_amt + sc_amt
+
         ord_obj = Order(
             id=oid,
             restaurant_id=rest.id,
@@ -274,12 +280,12 @@ def init_demo_db(db: Session):
             status=ostatus,
             payment_status=opstatus,
             placed_by=PlacedBy.AGGREGATOR if omode in (OrderMode.ZOMATO, OrderMode.SWIGGY) else PlacedBy.POS,
-            subtotal=ototal * Decimal("0.90"),
-            cgst=ototal * Decimal("0.025"),
-            sgst=ototal * Decimal("0.025"),
-            service_charge=ototal * Decimal("0.05"),
+            subtotal=item_subtotal,
+            cgst=cgst_amt,
+            sgst=sgst_amt,
+            service_charge=sc_amt,
             discount=Decimal("0.00"),
-            total_amount=ototal,
+            total_amount=calc_total,
             aggregator_platform="zomato" if omode == OrderMode.ZOMATO else "swiggy" if omode == OrderMode.SWIGGY else None,
             aggregator_order_id=f"ZOM-{onum}" if omode == OrderMode.ZOMATO else f"SWIG-{onum}" if omode == OrderMode.SWIGGY else None,
             aggregator_rider_name="Santosh Yadav" if omode in (OrderMode.ZOMATO, OrderMode.SWIGGY) else None,

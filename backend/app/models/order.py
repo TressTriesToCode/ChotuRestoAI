@@ -62,6 +62,23 @@ class Order(Base):
     discount = Column(Numeric(10, 2), default=Decimal("0.00"), nullable=False)
     total_amount = Column(Numeric(10, 2), default=Decimal("0.00"), nullable=False)
     
+    # Customer context
+    customer_id = Column(String(36), ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True)
+    
+    # Delivery OTP & Dispatch Security (Phase 4)
+    delivery_otp_hash = Column(String(128), nullable=True)
+    delivery_otp_salt = Column(String(32), nullable=True)
+    delivery_otp_expires_at = Column(DateTime, nullable=True)
+    delivery_otp_attempts = Column(Integer, default=0, nullable=False)
+    delivery_otp_verified_at = Column(DateTime, nullable=True)
+    dispatch_time = Column(DateTime, nullable=True)
+    delivered_time = Column(DateTime, nullable=True)
+    
+    # Applied Tax Rate Snapshots (Phase 4 Historical Price & Tax Lock)
+    cgst_rate_snapshot = Column(Numeric(5, 2), default=Decimal("2.50"), nullable=False)
+    sgst_rate_snapshot = Column(Numeric(5, 2), default=Decimal("2.50"), nullable=False)
+    service_charge_rate_snapshot = Column(Numeric(5, 2), default=Decimal("5.00"), nullable=False)
+    
     # Aggregator details
     aggregator_platform = Column(String, nullable=True)
     aggregator_order_id = Column(String, nullable=True)
@@ -73,6 +90,7 @@ class Order(Base):
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
     restaurant = relationship("Restaurant", back_populates="orders")
+    customer = relationship("Customer", back_populates="orders")
     table = relationship("DiningTable", back_populates="orders")
     items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
     kots = relationship("KOT", back_populates="order", cascade="all, delete-orphan")
@@ -83,6 +101,8 @@ class OrderItem(Base):
     id = Column(String, primary_key=True, index=True)
     order_id = Column(String, ForeignKey("orders.id"), nullable=False, index=True)
     menu_item_id = Column(String, ForeignKey("menu_items.id"), nullable=False)
+    variant_id = Column(String(36), ForeignKey("menu_item_variants.id", ondelete="SET NULL"), nullable=True)
+    variant_name = Column(String(64), nullable=True)
     name = Column(String, nullable=False)
     price = Column(Numeric(10, 2), nullable=False)
     quantity = Column(Integer, default=1, nullable=False)
@@ -94,3 +114,4 @@ class OrderItem(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     order = relationship("Order", back_populates="items")
+    variant = relationship("MenuItemVariant")

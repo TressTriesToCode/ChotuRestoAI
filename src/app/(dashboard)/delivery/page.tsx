@@ -1,8 +1,14 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Modal } from "@/components/ui/Modal";
+import { 
+  fetchDeliveryOrders, 
+  dispatchDeliveryOrder, 
+  verifyDeliveryOTP, 
+  DeliveryOrderData 
+} from "@/lib/api/delivery";
 import { 
   Bike, 
   MapPin, 
@@ -12,84 +18,31 @@ import {
   AlertCircle, 
   UserCheck, 
   Search,
-  ExternalLink,
-  ChevronRight,
   ShieldCheck,
-  Send
+  RefreshCw,
+  KeyRound
 } from "lucide-react";
 
-interface DeliveryOrder {
-  id: string;
-  orderNumber: string;
-  customerName: string;
-  customerPhone: string;
-  deliveryAddress: string;
-  platform: "direct" | "zomato" | "swiggy";
-  itemsSummary: string;
-  totalAmount: number;
-  riderName?: string;
-  riderPhone?: string;
-  otp: string;
-  status: "preparing" | "ready" | "dispatched" | "delivered";
-  timePlaced: string;
-}
-
-const INITIAL_DELIVERY_ORDERS: DeliveryOrder[] = [
-  {
-    id: "del-01",
-    orderNumber: "DEL-8401",
-    customerName: "Aakash Mehta",
-    customerPhone: "+91 98200 44321",
-    deliveryAddress: "Flat 402, Sea Green Apts, Perry Cross Rd, Bandra West, Mumbai 400050",
-    platform: "direct",
-    itemsSummary: "1x Butter Chicken, 2x Garlic Naan, 1x Jeera Rice",
-    totalAmount: 620,
-    riderName: "Ramesh Pawar (Direct Fleet)",
-    riderPhone: "+91 98199 11022",
-    otp: "5492",
-    status: "dispatched",
-    timePlaced: "20:45",
-  },
-  {
-    id: "del-02",
-    orderNumber: "ZOM-9923",
-    customerName: "Pooja Hegde",
-    customerPhone: "+91 98333 77123",
-    deliveryAddress: "B-12, Pali Hill Enclave, Bandra West, Mumbai 400050",
-    platform: "zomato",
-    itemsSummary: "1x Paneer Tikka Masala, 3x Tandoori Roti",
-    totalAmount: 430,
-    riderName: "Sanjay K. (Zomato Valet)",
-    riderPhone: "+91 97000 88219",
-    otp: "8812",
-    status: "ready",
-    timePlaced: "20:52",
-  },
-  {
-    id: "del-03",
-    orderNumber: "SWG-1104",
-    customerName: "Karan Johar",
-    customerPhone: "+91 98210 99441",
-    deliveryAddress: "Penthouse 14, Carter Road, Bandra West, Mumbai 400050",
-    platform: "swiggy",
-    itemsSummary: "2x Dal Makhani, 4x Butter Naan, 1x Gulab Jamun (2 pcs)",
-    totalAmount: 890,
-    riderName: "Unassigned",
-    otp: "3319",
-    status: "preparing",
-    timePlaced: "21:05",
-  },
-];
-
 export default function DeliveryPage() {
-  const [orders, setOrders] = useState<DeliveryOrder[]>(INITIAL_DELIVERY_ORDERS);
-  const [selectedOrder, setSelectedOrder] = useState<DeliveryOrder | null>(null);
+  const [orders, setOrders] = useState<DeliveryOrderData[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  
+  // Dispatch Modal
+  const [selectedOrder, setSelectedOrder] = useState<DeliveryOrderData | null>(null);
   const [assignRiderModal, setAssignRiderModal] = useState<boolean>(false);
   const [riderInput, setRiderInput] = useState<{ name: string; phone: string }>({
     name: "Raju Shinde (Direct Fleet)",
     phone: "+91 98200 99112",
   });
+  const [dispatching, setDispatching] = useState<boolean>(false);
+  const [dispatchedOTP, setDispatchedOTP] = useState<string | null>(null);
+
+  // OTP Verification Modal
+  const [verifyModal, setVerifyModal] = useState<boolean>(false);
+  const [verifyOtpInput, setVerifyOtpInput] = useState<string>("");
+  const [verifying, setVerifying] = useState<boolean>(false);
+
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -97,32 +50,57 @@ export default function DeliveryPage() {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  const updateStatus = (orderId: string, nextStatus: DeliveryOrder["status"]) => {
-    setOrders((prev) =>
-      prev.map((o) => (o.id === orderId ? { ...o, status: nextStatus } : o))
-    );
-    showToast(`Order #${orderId} marked as ${nextStatus.toUpperCase()}`);
-    if (selectedOrder && selectedOrder.id === orderId) {
-      setSelectedOrder({ ...selectedOrder, status: nextStatus });
+  const loadOrders = async (st?: string) => {
+    try {
+      setLoading(true);
+      const data = await fetchDeliveryOrders(st === "all" ? undefined : st);
+      setOrders(data);
+    } catch (err: any) {
+      showToast(err.message || "Failed to load delivery orders");
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleAssignRider = () => {
+  useEffect(() => {
+    loadOrders(statusFilter);
+  }, [statusFilter]);
+
+  const handleDispatch = async () => {
     if (!selectedOrder) return;
-    setOrders((prev) =>
-      prev.map((o) =>
-        o.id === selectedOrder.id
-          ? {
-              ...o,
-              riderName: riderInput.name,
-              riderPhone: riderInput.phone,
-              status: "dispatched",
-            }
-          : o
-      )
-    );
-    showToast(`Rider ${riderInput.name} assigned & dispatched!`);
-    setAssignRiderModal(false);
+    try {
+      setDispatching(true);
+      const res = await dispatchDeliveryOrder(selectedOrder.id, {
+        rider_name: riderInput.name,
+        rider_phone: riderInput.phone,
+      });
+      setDispatchedOTP(res.delivery_otp);
+      showToast(`Order #${selectedOrder.order_number} dispatched! OTP generated.`);
+      await loadOrders(statusFilter);
+    } catch (err: any) {
+      showToast(err.message || "Failed to dispatch order");
+    } finally {
+      setDispatching(false);
+    }
+  };
+
+  const handleVerifyOTP = async () => {
+    if (!selectedOrder || !verifyOtpInput) return;
+    try {
+      setVerifying(true);
+      const res = await verifyDeliveryOTP(selectedOrder.id, verifyOtpInput.trim());
+      if (res.verified) {
+        showToast(`Delivery handover verified! Order #${selectedOrder.order_number} marked Delivered.`);
+        setVerifyModal(false);
+        setVerifyOtpInput("");
+        setSelectedOrder(null);
+        await loadOrders(statusFilter);
+      }
+    } catch (err: any) {
+      showToast(err.message || "Invalid OTP code or max attempts exceeded");
+    } finally {
+      setVerifying(false);
+    }
   };
 
   const filteredOrders = orders.filter((o) => {
@@ -135,7 +113,17 @@ export default function DeliveryPage() {
       <PageHeader
         category="Logistics & Dispatch"
         title="Delivery & Aggregator Operations"
-        subtitle="Manage in-house fleet and third-party deliveries (Zomato / Swiggy), track rider arrival and verify delivery OTPs."
+        subtitle="Manage in-house fleet and third-party deliveries, dispatch orders, and verify cryptographically hashed delivery OTPs."
+        actions={
+          <button
+            onClick={() => loadOrders(statusFilter)}
+            disabled={loading}
+            className="px-3.5 py-2 border border-stone-800 bg-[#181514] hover:bg-stone-800 text-xs font-mono text-stone-200 flex items-center gap-2 rounded-xl transition-all"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-[#E07A5F] ${loading ? "animate-spin" : ""}`} />
+            <span>Refresh</span>
+          </button>
+        }
       />
 
       {/* Aggregator Status Ribbon */}
@@ -147,10 +135,10 @@ export default function DeliveryPage() {
             </div>
             <div>
               <h3 className="text-xs font-bold text-white">Zomato Gateway</h3>
-              <p className="text-[10px] text-emerald-400 font-mono">ONLINE • Auto-Accept ON</p>
+              <p className="text-[10px] text-amber-400 font-mono">Integration Ready • Webhook Available</p>
             </div>
           </div>
-          <span className="text-xs font-bold text-stone-200">1 Active</span>
+          <span className="text-xs font-bold text-stone-400 font-mono">REST v2</span>
         </div>
 
         <div className="p-4 rounded-2xl bg-[#181514] border border-stone-800 flex items-center justify-between">
@@ -160,10 +148,10 @@ export default function DeliveryPage() {
             </div>
             <div>
               <h3 className="text-xs font-bold text-white">Swiggy Gateway</h3>
-              <p className="text-[10px] text-emerald-400 font-mono">ONLINE • Auto-Accept ON</p>
+              <p className="text-[10px] text-amber-400 font-mono">Integration Ready • Webhook Available</p>
             </div>
           </div>
-          <span className="text-xs font-bold text-stone-200">1 Active</span>
+          <span className="text-xs font-bold text-stone-400 font-mono">REST v2</span>
         </div>
 
         <div className="p-4 rounded-2xl bg-[#181514] border border-stone-800 flex items-center justify-between">
@@ -172,21 +160,21 @@ export default function DeliveryPage() {
               <Bike className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-xs font-bold text-white">Direct Fleet (0% Comm.)</h3>
-              <p className="text-[10px] text-emerald-400 font-mono">2 Riders on road</p>
+              <h3 className="text-xs font-bold text-white">Direct Fleet & Delivery</h3>
+              <p className="text-[10px] text-emerald-400 font-mono">Secure Salted SHA-256 OTP</p>
             </div>
           </div>
-          <span className="text-xs font-bold text-emerald-400">₹620 saved</span>
+          <span className="text-xs font-bold text-emerald-400 font-mono">{orders.length} in DB</span>
         </div>
       </div>
 
       {/* Orders Filter Tabs */}
       <div className="flex items-center gap-2 p-2 rounded-xl bg-[#181514] border border-stone-800">
-        {["all", "preparing", "ready", "dispatched", "delivered"].map((st) => (
+        {["all", "placed", "confirmed", "dispatched", "delivered"].map((st) => (
           <button
             key={st}
             onClick={() => setStatusFilter(st)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors cursor-pointer ${
               statusFilter === st
                 ? "bg-[#E07A5F]/20 text-[#F4A261] border border-[#E07A5F]/40 font-bold"
                 : "text-stone-400 hover:text-white"
@@ -199,9 +187,16 @@ export default function DeliveryPage() {
 
       {/* Delivery Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {filteredOrders.map((ord) => {
-          const isDirect = ord.platform === "direct";
-          return (
+        {loading && orders.length === 0 ? (
+          <div className="col-span-full py-12 text-center text-xs text-stone-500 font-mono">
+            Loading delivery orders from PostgreSQL...
+          </div>
+        ) : filteredOrders.length === 0 ? (
+          <div className="col-span-full py-12 text-center text-xs text-stone-500 font-mono">
+            No delivery orders found for filter "{statusFilter}".
+          </div>
+        ) : (
+          filteredOrders.map((ord) => (
             <div
               key={ord.id}
               className="p-5 rounded-2xl bg-[#181514] border border-stone-800 flex flex-col justify-between hover:border-stone-700 transition-all shadow-lg"
@@ -209,28 +204,18 @@ export default function DeliveryPage() {
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-white">{ord.orderNumber}</span>
-                    <span
-                      className={`text-[9px] px-2 py-0.5 rounded font-mono font-bold uppercase ${
-                        isDirect
-                          ? "bg-emerald-950 text-emerald-300 border border-emerald-500/30"
-                          : ord.platform === "zomato"
-                          ? "bg-red-950 text-red-300 border border-red-500/30"
-                          : "bg-orange-950 text-orange-300 border border-orange-500/30"
-                      }`}
-                    >
-                      {ord.platform}
+                    <span className="text-sm font-bold text-white">#{ord.order_number}</span>
+                    <span className="text-[9px] px-2 py-0.5 rounded font-mono font-bold uppercase bg-emerald-950 text-emerald-300 border border-emerald-500/30">
+                      Direct Delivery
                     </span>
                   </div>
                   <span
                     className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase font-mono border ${
                       ord.status === "dispatched"
                         ? "bg-blue-500/20 text-blue-300 border-blue-500/40"
-                        : ord.status === "ready"
-                        ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
                         : ord.status === "delivered"
                         ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
-                        : "bg-stone-800 text-stone-400 border-stone-700"
+                        : "bg-amber-500/20 text-amber-300 border-amber-500/40"
                     }`}
                   >
                     {ord.status}
@@ -239,56 +224,51 @@ export default function DeliveryPage() {
 
                 <div className="space-y-2 text-xs mb-4">
                   <div className="flex items-center justify-between">
-                    <span className="text-stone-300 font-semibold">{ord.customerName}</span>
-                    <span className="text-stone-400 font-mono">{ord.customerPhone}</span>
+                    <span className="text-stone-300 font-semibold">{ord.customer_name}</span>
+                    <span className="text-stone-400 font-mono">{ord.customer_phone}</span>
                   </div>
 
                   <p className="text-[11px] text-stone-400 flex items-start gap-1">
                     <MapPin className="w-3.5 h-3.5 text-stone-500 flex-shrink-0 mt-0.5" />
-                    <span className="line-clamp-2">{ord.deliveryAddress}</span>
+                    <span className="line-clamp-2">{ord.delivery_address || "Standard Delivery"}</span>
                   </p>
 
                   <div className="p-2.5 rounded-xl bg-stone-900 border border-stone-800/80">
                     <span className="text-[10px] text-stone-500 font-mono uppercase block mb-1">
                       Ordered Items:
                     </span>
-                    <p className="text-xs text-stone-200">{ord.itemsSummary}</p>
+                    <p className="text-xs text-stone-200">{ord.items_summary}</p>
                     <div className="flex justify-between items-center mt-2 pt-1 border-t border-stone-800">
                       <span className="text-[11px] text-stone-400">Total:</span>
-                      <span className="text-xs font-bold text-emerald-400">₹{ord.totalAmount}</span>
+                      <span className="text-xs font-bold text-emerald-400">₹{ord.total_amount}</span>
                     </div>
                   </div>
 
                   <div className="flex items-center justify-between pt-1">
                     <div className="text-[11px]">
                       <span className="text-stone-500">Rider: </span>
-                      <span className="text-stone-200 font-medium">{ord.riderName || "Not Assigned"}</span>
+                      <span className="text-stone-200 font-medium">{ord.rider_name || "Unassigned"}</span>
                     </div>
-                    <div className="text-[11px] font-mono bg-stone-900 px-2 py-0.5 rounded border border-stone-800 text-[#F4A261]">
-                      OTP: {ord.otp}
-                    </div>
+                    {ord.otp_verified && (
+                      <div className="text-[11px] font-mono bg-emerald-950/60 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/30 flex items-center gap-1">
+                        <ShieldCheck className="w-3 h-3" />
+                        <span>OTP Verified</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
 
               {/* Status Action Buttons */}
               <div className="flex items-center gap-2 pt-3 border-t border-stone-800">
-                {ord.status === "preparing" && (
-                  <button
-                    onClick={() => updateStatus(ord.id, "ready")}
-                    className="flex-1 py-2 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold transition-colors"
-                  >
-                    Mark Ready for Pickup
-                  </button>
-                )}
-
-                {ord.status === "ready" && (
+                {(ord.status === "placed" || ord.status === "confirmed") && (
                   <button
                     onClick={() => {
                       setSelectedOrder(ord);
+                      setDispatchedOTP(null);
                       setAssignRiderModal(true);
                     }}
-                    className="flex-1 py-2 px-3 rounded-xl bg-[#E07A5F] hover:bg-[#d0694e] text-stone-950 text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
+                    className="flex-1 py-2 px-3 rounded-xl bg-[#E07A5F] hover:bg-[#d0694e] text-stone-950 text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <Bike className="w-3.5 h-3.5" />
                     <span>Assign Rider & Dispatch</span>
@@ -297,23 +277,28 @@ export default function DeliveryPage() {
 
                 {ord.status === "dispatched" && (
                   <button
-                    onClick={() => updateStatus(ord.id, "delivered")}
-                    className="flex-1 py-2 px-3 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
+                    onClick={() => {
+                      setSelectedOrder(ord);
+                      setVerifyOtpInput("");
+                      setVerifyModal(true);
+                    }}
+                    className="flex-1 py-2 px-3 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Verify OTP & Mark Delivered</span>
+                    <KeyRound className="w-3.5 h-3.5" />
+                    <span>Verify Customer OTP</span>
                   </button>
                 )}
 
                 {ord.status === "delivered" && (
-                  <div className="flex-1 py-1.5 text-center text-xs text-stone-500 font-medium">
-                    ✓ Completed & Archived
+                  <div className="flex-1 py-1.5 text-center text-xs text-stone-500 font-medium flex items-center justify-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>Delivered & Settled</span>
                   </div>
                 )}
               </div>
             </div>
-          );
-        })}
+          ))
+        )}
       </div>
 
       {/* Assign Rider Modal */}
@@ -321,47 +306,111 @@ export default function DeliveryPage() {
         <Modal
           isOpen={assignRiderModal}
           onClose={() => setAssignRiderModal(false)}
-          title={`Dispatch Order: ${selectedOrder.orderNumber}`}
-          description={`Assign delivery rider for ${selectedOrder.customerName}`}
+          title={`Dispatch Order: #${selectedOrder.order_number}`}
+          description={`Assign delivery rider for ${selectedOrder.customer_name}`}
+          maxWidth="sm"
+        >
+          {dispatchedOTP ? (
+            <div className="space-y-4 py-2">
+              <div className="p-4 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-center space-y-2">
+                <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto" />
+                <h4 className="text-sm font-bold text-white">Order Dispatched Successfully!</h4>
+                <p className="text-xs text-stone-400">
+                  Give this one-time code to the customer or rider. Only a secure hash is stored in PostgreSQL.
+                </p>
+                <div className="text-2xl font-mono font-bold tracking-widest text-[#F4A261] py-2 bg-stone-900 rounded-lg border border-stone-800">
+                  {dispatchedOTP}
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <button
+                  onClick={() => setAssignRiderModal(false)}
+                  className="px-4 py-2 rounded-xl bg-[#E07A5F] text-stone-950 font-bold text-xs"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-stone-300 mb-1.5">Rider Full Name</label>
+                <input
+                  type="text"
+                  value={riderInput.name}
+                  onChange={(e) => setRiderInput({ ...riderInput, name: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl bg-stone-900 border border-stone-800 text-white text-xs focus:outline-none focus:border-[#E07A5F]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-stone-300 mb-1.5">Rider Mobile Phone</label>
+                <input
+                  type="text"
+                  value={riderInput.phone}
+                  onChange={(e) => setRiderInput({ ...riderInput, phone: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl bg-stone-900 border border-stone-800 text-white text-xs font-mono focus:outline-none focus:border-[#E07A5F]"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-stone-800">
+                <button
+                  onClick={() => setAssignRiderModal(false)}
+                  className="px-4 py-2 rounded-xl bg-stone-800 text-stone-300 text-xs cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDispatch}
+                  disabled={dispatching}
+                  className="px-4 py-2 rounded-xl bg-[#E07A5F] text-stone-950 font-bold text-xs cursor-pointer hover:bg-[#d0694e] disabled:opacity-50"
+                >
+                  {dispatching ? "Generating OTP..." : "Confirm & Dispatch"}
+                </button>
+              </div>
+            </div>
+          )}
+        </Modal>
+      )}
+
+      {/* Verify Customer OTP Modal */}
+      {selectedOrder && (
+        <Modal
+          isOpen={verifyModal}
+          onClose={() => setVerifyModal(false)}
+          title={`Verify Handover: #${selectedOrder.order_number}`}
+          description={`Enter the 6-digit OTP provided by ${selectedOrder.customer_name}`}
           maxWidth="sm"
         >
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-stone-300 mb-1.5">Rider Name</label>
+              <label className="block text-xs font-medium text-stone-300 mb-1.5">Customer Delivery OTP</label>
               <input
                 type="text"
-                value={riderInput.name}
-                onChange={(e) => setRiderInput({ ...riderInput, name: e.target.value })}
-                className="w-full px-3 py-2 rounded-xl bg-stone-900 border border-stone-800 text-white text-xs"
+                maxLength={6}
+                value={verifyOtpInput}
+                onChange={(e) => setVerifyOtpInput(e.target.value)}
+                placeholder="6-digit code"
+                className="w-full px-3 py-2 rounded-xl bg-stone-900 border border-stone-800 text-white text-lg font-mono tracking-widest text-center focus:outline-none focus:border-[#E07A5F]"
               />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-stone-300 mb-1.5">Rider Phone</label>
-              <input
-                type="text"
-                value={riderInput.phone}
-                onChange={(e) => setRiderInput({ ...riderInput, phone: e.target.value })}
-                className="w-full px-3 py-2 rounded-xl bg-stone-900 border border-stone-800 text-white text-xs font-mono"
-              />
-            </div>
-
-            <div className="p-3 rounded-xl bg-stone-900/80 border border-stone-800 text-xs text-stone-400">
-              Customer Verification OTP: <strong className="text-white">{selectedOrder.otp}</strong>
+              <p className="text-[11px] text-stone-500 mt-1">
+                Verified using constant-time comparison against salted SHA-256 hash. Max 3 attempts.
+              </p>
             </div>
 
             <div className="flex justify-end gap-2 pt-2 border-t border-stone-800">
               <button
-                onClick={() => setAssignRiderModal(false)}
-                className="px-4 py-2 rounded-xl bg-stone-800 text-stone-300 text-xs"
+                onClick={() => setVerifyModal(false)}
+                className="px-4 py-2 rounded-xl bg-stone-800 text-stone-300 text-xs cursor-pointer"
               >
                 Cancel
               </button>
               <button
-                onClick={handleAssignRider}
-                className="px-4 py-2 rounded-xl bg-[#E07A5F] text-stone-950 font-bold text-xs"
+                onClick={handleVerifyOTP}
+                disabled={verifying || !verifyOtpInput}
+                className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-stone-950 font-bold text-xs cursor-pointer disabled:opacity-50"
               >
-                Confirm Dispatch
+                {verifying ? "Verifying..." : "Verify & Complete"}
               </button>
             </div>
           </div>

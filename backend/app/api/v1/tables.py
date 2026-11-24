@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database.session import get_db
 from app.models.table import DiningTable, TableStatus
-from app.schemas.menu import TableResponse, TableStatusUpdate, TableTransferRequest
+from app.schemas.menu import TableResponse, TableStatusUpdate, TableTransferRequest, TableWaiterAssignRequest
 from app.services.order_service import OrderService
 from app.api.deps import get_current_user
 from app.models.user import User
@@ -75,3 +75,31 @@ async def transfer_table(
         create_ws_message(WSEventType.TABLE_UPDATED, {"table_id": target_table.id, "status": target_table.status.value})
     )
     return target_table
+
+@router.post("/{table_id}/waiter", response_model=TableResponse)
+async def assign_table_waiter(
+    table_id: str,
+    req: TableWaiterAssignRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    table = db.query(DiningTable).filter(DiningTable.id == table_id, DiningTable.restaurant_id == current_user.restaurant_id).first()
+    if not table:
+        raise HTTPException(status_code=404, detail="Table not found")
+        
+    if req.waiter_id:
+        waiter = db.query(User).filter(User.id == req.waiter_id, User.restaurant_id == current_user.restaurant_id).first()
+        if not waiter:
+            raise HTTPException(status_code=400, detail="Assigned waiter not found")
+        table.assigned_waiter_id = waiter.id
+        table.captain_name = waiter.full_name
+    else:
+        table.assigned_waiter_id = None
+
+    db.commit()
+    db.refresh(table)
+    await ws_manager.broadcast_to_restaurant(
+        current_user.restaurant_id,
+        create_ws_message(WSEventType.TABLE_UPDATED, {"table_id": table_id, "assigned_waiter_id": table.assigned_waiter_id})
+    )
+    return table

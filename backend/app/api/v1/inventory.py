@@ -98,6 +98,16 @@ def adjust_ingredient_stock(
         is_low_stock=ing.current_stock <= ing.reorder_threshold
     )
 
+@router.get("/transactions", response_model=List[StockTransactionResponse])
+def get_stock_transactions(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    txs = db.query(StockTransaction).filter(
+        StockTransaction.restaurant_id == current_user.restaurant_id
+    ).order_by(StockTransaction.created_at.desc()).limit(100).all()
+    return txs
+
 @router.get("/alerts")
 def get_inventory_alerts(
     db: Session = Depends(get_db),

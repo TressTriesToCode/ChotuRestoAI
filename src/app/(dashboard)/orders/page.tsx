@@ -8,7 +8,7 @@ import { INITIAL_LIVE_ORDERS, INITIAL_AGGREGATORS } from "@/data/mockData";
 import { wsClient } from "@/lib/api/websocket";
 
 export default function OrdersPage() {
-  const [orders, setOrders] = useState<LiveOrder[]>(INITIAL_LIVE_ORDERS);
+  const [orders, setOrders] = useState<LiveOrder[]>([]);
   const [channels, setChannels] = useState<AggregatorChannel[]>(INITIAL_AGGREGATORS);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -20,7 +20,7 @@ export default function OrdersPage() {
   const loadOrders = async () => {
     try {
       const data = await fetchLiveOrders();
-      if (data && data.length > 0) {
+      if (Array.isArray(data)) {
         setOrders(data);
       }
     } catch (err) {

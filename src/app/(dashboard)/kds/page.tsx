@@ -8,7 +8,7 @@ import { INITIAL_KOTS } from "@/data/mockData";
 import { wsClient } from "@/lib/api/websocket";
 
 export default function KdsPage() {
-  const [kots, setKots] = useState<KOT[]>(INITIAL_KOTS);
+  const [kots, setKots] = useState<KOT[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -19,11 +19,11 @@ export default function KdsPage() {
   const loadTickets = async () => {
     try {
       const data = await fetchKDSTickets();
-      if (data && data.length > 0) {
+      if (Array.isArray(data)) {
         setKots(data);
       }
     } catch (err) {
-      console.warn("Using initial KOT state:", err);
+      console.warn("Error fetching KOT tickets:", err);
     }
   };
 

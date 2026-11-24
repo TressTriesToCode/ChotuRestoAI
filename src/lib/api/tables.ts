@@ -57,3 +57,12 @@ export async function transferTable(fromTableId: string, targetTableId: string):
   });
   return mapBackendTable(data);
 }
+
+export async function assignTableWaiter(tableId: string, waiterId: string | null): Promise<Table> {
+  const data = await apiFetch<BackendTable>(`/tables/${tableId}/waiter`, {
+    method: "POST",
+    body: JSON.stringify({ waiter_id: waiterId }),
+  });
+  return mapBackendTable(data);
+}
+

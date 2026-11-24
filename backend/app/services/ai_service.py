@@ -4,11 +4,13 @@ from decimal import Decimal
 from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
 from app.core.config import settings
-from app.models.order import Order, OrderStatus, PaymentStatus
+from app.models.order import Order, OrderStatus, PaymentStatus, OrderMode
 from app.models.table import DiningTable, TableStatus
 from app.models.kot import KOT, KOTStatus
 from app.models.menu import MenuItem
 from app.models.inventory import Ingredient
+from app.models.customer import Customer
+from app.models.supplier import Supplier, PurchaseOrder, PurchaseOrderStatus
 from app.models.audit_log import AIConversation
 from app.schemas.ai import AIChatResponse
 
@@ -16,7 +18,8 @@ class AIService:
     @staticmethod
     async def chat(db: Session, restaurant_id: str, message: str, user_id: Optional[str] = None) -> AIChatResponse:
         """
-        AI conversational assistant grounded in genuine restaurant database records.
+        AI conversational assistant grounded in genuine restaurant database records,
+        including floor, POS, CRM loyalty, delivery dispatch, and supplier procurement.
         """
         # 1. Fetch factual operational context from Database
         total_tables = db.query(DiningTable).filter(DiningTable.restaurant_id == restaurant_id).count()
@@ -31,11 +34,23 @@ class AIService:
         ).all()
         today_sales = sum((o.total_amount for o in today_paid_orders), Decimal("0.00"))
         
-        low_stock_ingredients = db.query(Ingredient).filter(
-            Ingredient.restaurant_id == restaurant_id,
-            Ingredient.current_stock <= Ingredient.reorder_threshold
-        ).all()
+        # Raw material stock & valuation
+        all_ingredients = db.query(Ingredient).filter(Ingredient.restaurant_id == restaurant_id).all()
+        total_valuation = sum((ing.current_stock * ing.cost_per_unit for ing in all_ingredients), Decimal("0.00"))
+        low_stock_ingredients = [ing for ing in all_ingredients if ing.current_stock <= ing.reorder_threshold]
         low_stock_names = [f"{ing.name} ({float(ing.current_stock)} {ing.unit})" for ing in low_stock_ingredients]
+
+        # CRM & Delivery
+        total_customers = db.query(Customer).filter(Customer.restaurant_id == restaurant_id).count()
+        active_deliveries = db.query(Order).filter(
+            Order.restaurant_id == restaurant_id,
+            Order.mode == OrderMode.DELIVERY,
+            Order.status.in_([OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.OUT_FOR_DELIVERY])
+        ).count()
+        pending_pos = db.query(PurchaseOrder).filter(
+            PurchaseOrder.restaurant_id == restaurant_id,
+            PurchaseOrder.status.in_([PurchaseOrderStatus.DRAFT, PurchaseOrderStatus.ISSUED])
+        ).count()
 
         msg_lower = message.lower()
         intent = "general_query"
@@ -52,6 +67,10 @@ Current Live Real-Time Database State:
 - Occupied Tables: {occupied_tables}/{total_tables} ({', '.join(occupied_table_labels) if occupied_table_labels else 'None'})
 - Active Kitchen Tickets: {active_kots}
 - Low Stock Items: {', '.join(low_stock_names) if low_stock_names else 'All raw stock sufficient'}
+- Total Inventory Valuation: ₹ {total_valuation:.2f}
+- Enrolled Guests (CRM): {total_customers}
+- Active Delivery Dispatches: {active_deliveries}
+- Pending Supplier POs: {pending_pos}
 
 Answer the staff question concisely, professionally, in a helpful hospitality tone (natural English or Hinglish).
 Never invent financial or inventory metrics not in this context.
@@ -80,6 +99,18 @@ Never invent financial or inventory metrics not in this context.
                     reply = f"{occupied_tables} out of {total_tables} tables are currently occupied: {', '.join(occupied_table_labels)}."
                 else:
                     reply = f"All {total_tables} dining tables are currently vacant and ready for seating."
+            elif "customer" in msg_lower or "guest" in msg_lower or "crm" in msg_lower or "loyalty" in msg_lower:
+                intent = "QUERY_CRM"
+                reply = f"There are currently {total_customers} registered guests in the loyalty CRM database."
+            elif "delivery" in msg_lower or "dispatch" in msg_lower or "rider" in msg_lower or "otp" in msg_lower:
+                intent = "QUERY_DELIVERY"
+                reply = f"There are {active_deliveries} active delivery orders currently in kitchen prep or out with riders."
+            elif "supplier" in msg_lower or "purchase order" in msg_lower or "po" in msg_lower or "vendor" in msg_lower:
+                intent = "QUERY_SUPPLIERS"
+                reply = f"You have {pending_pos} pending purchase orders awaiting vendor delivery receipt."
+            elif "valuation" in msg_lower or "worth" in msg_lower:
+                intent = "QUERY_INVENTORY_VALUATION"
+                reply = f"Total raw inventory valuation is ₹ {total_valuation:,.2f} calculated using Weighted Average Cost (WAC)."
             elif "stock" in msg_lower or "inventory" in msg_lower or "ingredient" in msg_lower or "khatam" in msg_lower:
                 intent = "QUERY_INVENTORY"
                 if low_stock_names:
@@ -87,7 +118,7 @@ Never invent financial or inventory metrics not in this context.
                     suggested_action = "DISPATCH_PURCHASE_ORDER"
                     action_data = {"ingredients": [ing.name for ing in low_stock_ingredients]}
                 else:
-                    reply = "All raw ingredients and kitchen stocks are currently above safety thresholds."
+                    reply = f"All raw ingredients are stocked above safety thresholds. Total stock valuation: ₹ {total_valuation:,.2f}."
             elif "kitchen" in msg_lower or "kot" in msg_lower or "prep" in msg_lower:
                 intent = "QUERY_KITCHEN"
                 reply = f"There are currently {active_kots} active KOT tickets cooking across the kitchen stations."
@@ -95,7 +126,7 @@ Never invent financial or inventory metrics not in this context.
                 intent = "ADD_ITEMS"
                 reply = "Noted! To add items to a table, use the POS terminal or specify the exact table and items."
             else:
-                reply = f"Chotu is active! Current floor: {occupied_tables}/{total_tables} tables occupied, {active_kots} KOTs in kitchen, and ₹ {today_sales:,.2f} today's sales."
+                reply = f"Chotu is active! Floor: {occupied_tables}/{total_tables} occupied, {active_kots} KOTs cooking, {total_customers} CRM guests, ₹ {today_sales:,.2f} sales today."
 
         # Record conversation in Audit Log
         conv_log = AIConversation(

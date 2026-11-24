@@ -13,15 +13,36 @@ import {
   ShieldAlert, 
   X, 
   Sparkles,
-  ArrowUpDown
+  ArrowUpDown,
+  Truck,
+  FileCheck,
+  Building,
+  Check
 } from "lucide-react";
-import { IngredientStock, fetchIngredients, adjustIngredientStock, fetchStockAlerts } from "@/lib/api/inventory";
+import { 
+  IngredientStock, 
+  fetchIngredients, 
+  adjustIngredientStock, 
+  fetchStockAlerts 
+} from "@/lib/api/inventory";
+import {
+  SupplierData,
+  PurchaseOrderData,
+  fetchSuppliers,
+  createSupplier,
+  fetchPurchaseOrders,
+  createPurchaseOrder,
+  receivePurchaseOrder
+} from "@/lib/api/suppliers";
 import { ClickSpark } from "@/components/animations/ClickSpark";
 import { ReactiveButton } from "@/components/animations/ReactiveButton";
 
 export const InventoryHub: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<"ingredients" | "suppliers" | "purchase_orders">("ingredients");
   const [ingredients, setIngredients] = useState<IngredientStock[]>([]);
   const [alerts, setAlerts] = useState<any[]>([]);
+  const [suppliers, setSuppliers] = useState<SupplierData[]>([]);
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrderData[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [filterMode, setFilterMode] = useState<"all" | "low" | "out">("all");
@@ -34,15 +55,50 @@ export const InventoryHub: React.FC = () => {
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
+  // Supplier modal
+  const [showAddSupplierModal, setShowAddSupplierModal] = useState<boolean>(false);
+  const [newSupplier, setNewSupplier] = useState({
+    name: "",
+    contact_person: "",
+    phone: "",
+    email: "",
+    gstin: "",
+    address: "",
+  });
+
+  // PO creation modal
+  const [showAddPOModal, setShowAddPOModal] = useState<boolean>(false);
+  const [selectedSupplierId, setSelectedSupplierId] = useState<string>("");
+  const [poIngredientId, setPOIngredientId] = useState<string>("");
+  const [poQuantity, setPOQuantity] = useState<number>(10);
+  const [poUnitCost, setPOUnitCost] = useState<number>(100);
+
+  // Receive PO modal
+  const [receivingPO, setReceivingPO] = useState<PurchaseOrderData | null>(null);
+  const [invoiceNumberInput, setInvoiceNumberInput] = useState<string>("INV-REC-001");
+  const [receivedQtyInput, setReceivedQtyInput] = useState<number>(10);
+  const [actualUnitCostInput, setActualUnitCostInput] = useState<number>(100);
+
   const loadData = async () => {
     try {
       setLoading(true);
-      const [ingList, alertList] = await Promise.all([
+      const [ingList, alertList, suppList, poList] = await Promise.all([
         fetchIngredients().catch(() => []),
-        fetchStockAlerts().catch(() => [])
+        fetchStockAlerts().catch(() => []),
+        fetchSuppliers().catch(() => []),
+        fetchPurchaseOrders().catch(() => [])
       ]);
       setIngredients(ingList);
       setAlerts(alertList);
+      setSuppliers(suppList);
+      setPurchaseOrders(poList);
+      if (suppList.length > 0 && !selectedSupplierId) {
+        setSelectedSupplierId(suppList[0].id);
+      }
+      if (ingList.length > 0 && !poIngredientId) {
+        setPOIngredientId(ingList[0].id);
+        setPOUnitCost(Number(ingList[0].cost_per_unit) || 100);
+      }
     } finally {
       setLoading(false);
     }
@@ -64,7 +120,6 @@ export const InventoryHub: React.FC = () => {
 
     try {
       setSubmitting(true);
-      // For wastage, make delta negative if positive was entered
       const effectiveDelta = adjType === "wastage" ? -Math.abs(numDelta) : numDelta;
 
       await adjustIngredientStock(selectedIngredient.id, {
@@ -79,6 +134,75 @@ export const InventoryHub: React.FC = () => {
       await loadData();
     } catch (err: any) {
       showToast(err.message || "Failed to update stock");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleCreateSupplier = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSupplier.name) return;
+    try {
+      setSubmitting(true);
+      const created = await createSupplier(newSupplier);
+      setSuppliers((prev) => [created, ...prev]);
+      showToast(`Added vendor profile: ${created.name}`);
+      setShowAddSupplierModal(false);
+      setNewSupplier({ name: "", contact_person: "", phone: "", email: "", gstin: "", address: "" });
+    } catch (err: any) {
+      showToast(err.message || "Failed to register supplier");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleCreatePO = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedSupplierId || !poIngredientId) return;
+    try {
+      setSubmitting(true);
+      const po = await createPurchaseOrder({
+        supplier_id: selectedSupplierId,
+        items: [
+          {
+            ingredient_id: poIngredientId,
+            ordered_quantity: Number(poQuantity),
+            unit_cost: Number(poUnitCost),
+          }
+        ]
+      });
+      setPurchaseOrders((prev) => [po, ...prev]);
+      showToast(`Purchase order #${po.po_number} created successfully!`);
+      setShowAddPOModal(false);
+    } catch (err: any) {
+      showToast(err.message || "Failed to create purchase order");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleReceivePO = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!receivingPO || receivingPO.items.length === 0) return;
+    try {
+      setSubmitting(true);
+      const item = receivingPO.items[0];
+      const updated = await receivePurchaseOrder(receivingPO.id, {
+        invoice_number: invoiceNumberInput,
+        idempotency_key: `recv-${receivingPO.id}-${Date.now()}`,
+        items: [
+          {
+            ingredient_id: item.ingredient_id,
+            received_quantity: Number(receivedQtyInput),
+            actual_unit_cost: Number(actualUnitCostInput),
+          }
+        ]
+      });
+      showToast(`PO #${receivingPO.po_number} received! Weighted average inventory cost recalculated.`);
+      setReceivingPO(null);
+      await loadData();
+    } catch (err: any) {
+      showToast(err.message || "Failed to receive purchase order");
     } finally {
       setSubmitting(false);
     }
@@ -102,11 +226,11 @@ export const InventoryHub: React.FC = () => {
       <div className="border-b border-border pb-4 flex items-center justify-between flex-wrap gap-4">
         <div>
           <h2 className="text-xl font-bold text-ink tracking-tight flex items-center gap-2">
-            <span>Raw Material &amp; Recipe Inventory</span>
+            <span>Raw Material &amp; Supplier Procurement</span>
             <span className="w-2.5 h-2.5 rounded-full bg-dietary-veg"></span>
           </h2>
           <p className="text-xs text-ink-secondary mt-0.5">
-            Automatic recipe consumption upon KOT firing, supplier purchase orders, and stock reorder controls
+            Automatic recipe consumption upon KOT firing, supplier purchase orders, and row-locked WAC inventory valuation
           </p>
         </div>
 
@@ -117,7 +241,7 @@ export const InventoryHub: React.FC = () => {
             className="px-3.5 py-1.5 border border-border bg-canvas-card hover:bg-canvas-subtle text-xs font-mono text-ink flex items-center gap-2 rounded transition-all cursor-pointer"
           >
             <RefreshCw className={`w-3.5 h-3.5 text-brand ${loading ? "animate-spin" : ""}`} />
-            <span>Sync Stock</span>
+            <span>Sync DB</span>
           </button>
         </div>
       </div>
@@ -145,9 +269,9 @@ export const InventoryHub: React.FC = () => {
         </div>
 
         <div className="bg-canvas-card border border-border p-5 space-y-1 rounded">
-          <div className="text-xs font-mono text-ink-secondary uppercase">Out of Stock</div>
-          <div className="text-2xl font-bold font-mono text-dietary-nonveg">{outOfStockCount} Items</div>
-          <div className="text-xs text-dietary-nonveg">Auto-marked 86'd on menu</div>
+          <div className="text-xs font-mono text-ink-secondary uppercase">Suppliers / POs</div>
+          <div className="text-2xl font-bold font-mono text-brand">{suppliers.length} / {purchaseOrders.length}</div>
+          <div className="text-xs text-brand">Active supply chains</div>
         </div>
 
         <div className="bg-canvas-card border border-border p-5 space-y-1 rounded">
@@ -157,154 +281,343 @@ export const InventoryHub: React.FC = () => {
         </div>
       </div>
 
-      {/* Active Low Stock Alerts Banner */}
-      {(lowStockCount > 0 || outOfStockCount > 0) && (
-        <div className="p-4 bg-accent/10 border border-accent/30 rounded flex items-start justify-between flex-wrap gap-3">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-accent mt-0.5 shrink-0" />
-            <div>
-              <h4 className="text-sm font-bold text-ink">
-                Stock Warning: {lowStockCount + outOfStockCount} ingredients require procurement
-              </h4>
-              <p className="text-xs text-ink-secondary mt-0.5">
-                Chotu Copilot identified depleted stock levels for core kitchen staples. Order from your registered vendors to avoid 86ing bestselling dishes.
-              </p>
+      {/* Top Tabs */}
+      <div className="flex items-center gap-2 border-b border-border pb-3">
+        <button
+          onClick={() => setActiveTab("ingredients")}
+          className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 cursor-pointer ${
+            activeTab === "ingredients"
+              ? "bg-brand text-white"
+              : "bg-canvas-card border border-border text-ink-secondary hover:text-ink"
+          }`}
+        >
+          <Package className="w-4 h-4" />
+          <span>Raw Ingredients &amp; Stocks</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("suppliers")}
+          className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 cursor-pointer ${
+            activeTab === "suppliers"
+              ? "bg-brand text-white"
+              : "bg-canvas-card border border-border text-ink-secondary hover:text-ink"
+          }`}
+        >
+          <Building className="w-4 h-4" />
+          <span>Suppliers &amp; Vendors ({suppliers.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("purchase_orders")}
+          className={`px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 cursor-pointer ${
+            activeTab === "purchase_orders"
+              ? "bg-brand text-white"
+              : "bg-canvas-card border border-border text-ink-secondary hover:text-ink"
+          }`}
+        >
+          <FileCheck className="w-4 h-4" />
+          <span>Purchase Orders &amp; Receipts ({purchaseOrders.length})</span>
+        </button>
+      </div>
+
+      {/* TAB 1: RAW INGREDIENTS */}
+      {activeTab === "ingredients" && (
+        <div className="space-y-6">
+          {/* Active Low Stock Alerts Banner */}
+          {(lowStockCount > 0 || outOfStockCount > 0) && (
+            <div className="p-4 bg-accent/10 border border-accent/30 rounded flex items-start justify-between flex-wrap gap-3">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-accent mt-0.5 shrink-0" />
+                <div>
+                  <h4 className="text-sm font-bold text-ink">
+                    Stock Warning: {lowStockCount + outOfStockCount} ingredients require procurement
+                  </h4>
+                  <p className="text-xs text-ink-secondary mt-0.5">
+                    Depleted stock levels for core kitchen staples. Order from your registered vendors to avoid 86ing bestselling dishes.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setActiveTab("purchase_orders");
+                  setShowAddPOModal(true);
+                }}
+                className="px-3.5 py-1.5 bg-accent text-white font-mono text-xs font-bold rounded shadow-xs hover:bg-accent/90 transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Create Purchase Order</span>
+              </button>
+            </div>
+          )}
+
+          {/* Operational Filter and Search Bar */}
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-3.5 h-3.5 text-ink-faint absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search raw ingredients (e.g. Chicken, Paneer, Flour)..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-canvas border border-border pl-8 pr-3 py-1.5 text-xs text-ink placeholder-ink-faint focus:outline-none focus:border-ink-secondary transition-colors rounded"
+              />
+            </div>
+
+            <div className="flex items-center gap-1.5 text-xs font-mono">
+              <button
+                onClick={() => setFilterMode("all")}
+                className={`px-3 py-1.5 rounded transition-all cursor-pointer ${
+                  filterMode === "all"
+                    ? "bg-ink text-canvas font-bold"
+                    : "text-ink-secondary hover:text-ink bg-canvas-card border border-border"
+                }`}
+              >
+                All Items ({ingredients.length})
+              </button>
+              <button
+                onClick={() => setFilterMode("low")}
+                className={`px-3 py-1.5 rounded transition-all cursor-pointer ${
+                  filterMode === "low"
+                    ? "bg-accent text-white font-bold"
+                    : "text-accent bg-accent/10 border border-accent/20 hover:bg-accent/20"
+                }`}
+              >
+                Low Stock ({lowStockCount})
+              </button>
+              <button
+                onClick={() => setFilterMode("out")}
+                className={`px-3 py-1.5 rounded transition-all cursor-pointer ${
+                  filterMode === "out"
+                    ? "bg-dietary-nonveg text-white font-bold"
+                    : "text-dietary-nonveg bg-dietary-nonveg/10 border border-dietary-nonveg/20 hover:bg-dietary-nonveg/20"
+                }`}
+              >
+                Out of Stock ({outOfStockCount})
+              </button>
             </div>
           </div>
-          <button
-            onClick={() => showToast("Chotu dispatched reorder request to vendors via WhatsApp & Email.")}
-            className="px-3.5 py-1.5 bg-accent text-white font-mono text-xs font-bold rounded shadow-xs hover:bg-accent/90 transition-all cursor-pointer flex items-center gap-1.5"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Generate Supplier POs</span>
-          </button>
+
+          {/* Ingredients Table */}
+          <div className="bg-canvas-card border border-border rounded overflow-hidden shadow-xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-border bg-canvas-subtle text-ink-secondary font-mono uppercase text-[11px]">
+                    <th className="py-3 px-4 font-semibold">Ingredient</th>
+                    <th className="py-3 px-4 font-semibold text-right">Current Stock</th>
+                    <th className="py-3 px-4 font-semibold text-right">Min Threshold</th>
+                    <th className="py-3 px-4 font-semibold text-right">Cost / Unit (WAC)</th>
+                    <th className="py-3 px-4 font-semibold text-center">Status</th>
+                    <th className="py-3 px-4 font-semibold text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {filtered.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-12 text-center text-xs text-ink-secondary font-mono">
+                        No ingredients found.
+                      </td>
+                    </tr>
+                  ) : (
+                    filtered.map((ing) => {
+                      const isOut = ing.current_stock <= 0;
+                      const isLow = ing.is_low_stock && !isOut;
+
+                      return (
+                        <tr key={ing.id} className="hover:bg-canvas-subtle/50 transition-colors">
+                          <td className="py-3.5 px-4 font-medium text-ink flex items-center gap-2">
+                            <Package className="w-3.5 h-3.5 text-brand" />
+                            <span>{ing.name}</span>
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono font-bold text-ink">
+                            {Number(ing.current_stock).toFixed(3)} {ing.unit}
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono text-ink-secondary">
+                            {Number(ing.min_reorder_level).toFixed(3)} {ing.unit}
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono text-ink">
+                            ₹ {Number(ing.cost_per_unit).toFixed(2)} / {ing.unit}
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
+                            <span
+                              className={`inline-block px-2 py-0.5 text-[10px] font-mono font-bold uppercase rounded ${
+                                isOut
+                                  ? "bg-dietary-nonveg/15 text-dietary-nonveg border border-dietary-nonveg/30"
+                                  : isLow
+                                  ? "bg-accent/15 text-accent border border-accent/30"
+                                  : "bg-dietary-veg/15 text-dietary-veg border border-dietary-veg/30"
+                              }`}
+                            >
+                              {ing.status}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            <button
+                              onClick={() => {
+                                setSelectedIngredient(ing);
+                                setAdjDelta("5.0");
+                                setAdjType("intake");
+                                setAdjReason("Fresh shipment receipt");
+                              }}
+                              className="px-2.5 py-1 border border-border hover:border-brand text-ink text-[11px] font-mono font-medium rounded hover:bg-canvas transition-all cursor-pointer"
+                            >
+                              Adjust Stock
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Operational Filter and Search Bar */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div className="relative flex-1 max-w-md">
-          <Search className="w-3.5 h-3.5 text-ink-faint absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Search raw ingredients (e.g. Chicken, Paneer, Flour)..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-canvas border border-border pl-8 pr-3 py-1.5 text-xs text-ink placeholder-ink-faint focus:outline-none focus:border-ink-secondary transition-colors rounded"
-          />
-        </div>
+      {/* TAB 2: SUPPLIERS */}
+      {activeTab === "suppliers" && (
+        <div className="space-y-4">
+          <div className="flex justify-between items-center">
+            <h3 className="text-sm font-bold text-ink">Registered Restaurant Suppliers</h3>
+            <button
+              onClick={() => setShowAddSupplierModal(true)}
+              className="px-3.5 py-1.5 bg-brand text-white text-xs font-bold rounded flex items-center gap-1.5 cursor-pointer hover:bg-brand/90 transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add New Supplier</span>
+            </button>
+          </div>
 
-        <div className="flex items-center gap-1.5 text-xs font-mono">
-          <button
-            onClick={() => setFilterMode("all")}
-            className={`px-3 py-1.5 rounded transition-all cursor-pointer ${
-              filterMode === "all"
-                ? "bg-ink text-canvas font-bold"
-                : "text-ink-secondary hover:text-ink bg-canvas-card border border-border"
-            }`}
-          >
-            All Items ({ingredients.length})
-          </button>
-          <button
-            onClick={() => setFilterMode("low")}
-            className={`px-3 py-1.5 rounded transition-all cursor-pointer ${
-              filterMode === "low"
-                ? "bg-accent text-white font-bold"
-                : "text-accent bg-accent/10 border border-accent/20 hover:bg-accent/20"
-            }`}
-          >
-            Low Stock ({lowStockCount})
-          </button>
-          <button
-            onClick={() => setFilterMode("out")}
-            className={`px-3 py-1.5 rounded transition-all cursor-pointer ${
-              filterMode === "out"
-                ? "bg-dietary-nonveg text-white font-bold"
-                : "text-dietary-nonveg bg-dietary-nonveg/10 border border-dietary-nonveg/20 hover:bg-dietary-nonveg/20"
-            }`}
-          >
-            Out of Stock ({outOfStockCount})
-          </button>
-        </div>
-      </div>
-
-      {/* Ingredients Table */}
-      <div className="bg-canvas-card border border-border rounded overflow-hidden shadow-xs">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="border-b border-border bg-canvas-subtle text-ink-secondary font-mono uppercase text-[11px]">
-                <th className="py-3 px-4 font-semibold">Ingredient</th>
-                <th className="py-3 px-4 font-semibold text-right">Current Stock</th>
-                <th className="py-3 px-4 font-semibold text-right">Min Threshold</th>
-                <th className="py-3 px-4 font-semibold text-right">Cost / Unit</th>
-                <th className="py-3 px-4 font-semibold text-center">Status</th>
-                <th className="py-3 px-4 font-semibold text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="py-12 text-center text-xs text-ink-secondary font-mono">
-                    No ingredients found.
-                  </td>
-                </tr>
-              ) : (
-                filtered.map((ing) => {
-                  const isOut = ing.current_stock <= 0;
-                  const isLow = ing.is_low_stock && !isOut;
-
-                  return (
-                    <tr key={ing.id} className="hover:bg-canvas-subtle/50 transition-colors">
-                      <td className="py-3.5 px-4 font-medium text-ink flex items-center gap-2">
-                        <Package className="w-3.5 h-3.5 text-brand" />
-                        <span>{ing.name}</span>
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono font-bold text-ink">
-                        {Number(ing.current_stock).toFixed(3)} {ing.unit}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono text-ink-secondary">
-                        {Number(ing.min_reorder_level).toFixed(3)} {ing.unit}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono text-ink">
-                        ₹ {Number(ing.cost_per_unit).toFixed(2)} / {ing.unit}
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span
-                          className={`inline-block px-2 py-0.5 text-[10px] font-mono font-bold uppercase rounded ${
-                            isOut
-                              ? "bg-dietary-nonveg/15 text-dietary-nonveg border border-dietary-nonveg/30"
-                              : isLow
-                              ? "bg-accent/15 text-accent border border-accent/30"
-                              : "bg-dietary-veg/15 text-dietary-veg border border-dietary-veg/30"
-                          }`}
-                        >
-                          {ing.status}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 text-right">
-                        <ClickSpark sparkColor="#D95D39" sparkCount={6} sparkRadius={14}>
-                          <button
-                            onClick={() => {
-                              setSelectedIngredient(ing);
-                              setAdjDelta("5.0");
-                              setAdjType("intake");
-                              setAdjReason("Fresh shipment receipt");
-                            }}
-                            className="px-2.5 py-1 border border-border hover:border-brand text-ink text-[11px] font-mono font-medium rounded hover:bg-canvas transition-all cursor-pointer"
-                          >
-                            Adjust Stock
-                          </button>
-                        </ClickSpark>
+          <div className="bg-canvas-card border border-border rounded overflow-hidden shadow-xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-border bg-canvas-subtle text-ink-secondary font-mono uppercase text-[11px]">
+                    <th className="py-3 px-4 font-semibold">Supplier Name</th>
+                    <th className="py-3 px-4 font-semibold">Contact Person</th>
+                    <th className="py-3 px-4 font-semibold">Phone</th>
+                    <th className="py-3 px-4 font-semibold">Email</th>
+                    <th className="py-3 px-4 font-semibold">GSTIN</th>
+                    <th className="py-3 px-4 font-semibold">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {suppliers.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-xs text-ink-secondary font-mono">
+                        No suppliers registered yet. Click "Add New Supplier" to create your vendor network.
                       </td>
                     </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                  ) : (
+                    suppliers.map((sup) => (
+                      <tr key={sup.id} className="hover:bg-canvas-subtle/50 transition-colors">
+                        <td className="py-3 px-4 font-bold text-ink">{sup.name}</td>
+                        <td className="py-3 px-4 text-ink-secondary">{sup.contact_person || "—"}</td>
+                        <td className="py-3 px-4 font-mono text-ink">{sup.phone || "—"}</td>
+                        <td className="py-3 px-4 text-ink-secondary">{sup.email || "—"}</td>
+                        <td className="py-3 px-4 font-mono text-xs">{sup.gstin || "—"}</td>
+                        <td className="py-3 px-4">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-dietary-veg/15 text-dietary-veg border border-dietary-veg/30">
+                            Active Vendor
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* TAB 3: PURCHASE ORDERS */}
+      {activeTab === "purchase_orders" && (
+        <div className="space-y-4">
+          <div className="flex justify-between items-center">
+            <h3 className="text-sm font-bold text-ink">Purchase Orders &amp; WAC Receipts</h3>
+            <button
+              onClick={() => setShowAddPOModal(true)}
+              className="px-3.5 py-1.5 bg-brand text-white text-xs font-bold rounded flex items-center gap-1.5 cursor-pointer hover:bg-brand/90 transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Raise Purchase Order</span>
+            </button>
+          </div>
+
+          <div className="bg-canvas-card border border-border rounded overflow-hidden shadow-xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-border bg-canvas-subtle text-ink-secondary font-mono uppercase text-[11px]">
+                    <th className="py-3 px-4 font-semibold">PO Number</th>
+                    <th className="py-3 px-4 font-semibold">Supplier</th>
+                    <th className="py-3 px-4 font-semibold text-right">Total Amount</th>
+                    <th className="py-3 px-4 font-semibold">Status</th>
+                    <th className="py-3 px-4 font-semibold">Created Date</th>
+                    <th className="py-3 px-4 font-semibold text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {purchaseOrders.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-xs text-ink-secondary font-mono">
+                        No purchase orders placed yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    purchaseOrders.map((po) => {
+                      const supp = suppliers.find((s) => s.id === po.supplier_id);
+                      return (
+                        <tr key={po.id} className="hover:bg-canvas-subtle/50 transition-colors">
+                          <td className="py-3 px-4 font-bold font-mono text-ink">#{po.po_number}</td>
+                          <td className="py-3 px-4 text-ink-secondary">{supp?.name || po.supplier_name || "Vendor"}</td>
+                          <td className="py-3 px-4 text-right font-mono font-bold text-emerald-500">
+                            ₹{Number(po.total_amount).toFixed(2)}
+                          </td>
+                          <td className="py-3 px-4">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${
+                                po.status === "received"
+                                  ? "bg-dietary-veg/15 text-dietary-veg border border-dietary-veg/30"
+                                  : "bg-accent/15 text-accent border border-accent/30"
+                              }`}
+                            >
+                              {po.status}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-ink-secondary font-mono">
+                            {new Date(po.created_at).toLocaleDateString("en-IN")}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            {po.status !== "received" ? (
+                              <button
+                                onClick={() => {
+                                  setReceivingPO(po);
+                                  if (po.items && po.items.length > 0) {
+                                    setReceivedQtyInput(po.items[0].ordered_quantity);
+                                    setActualUnitCostInput(po.items[0].unit_cost);
+                                  }
+                                }}
+                                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-mono font-bold rounded cursor-pointer transition-colors"
+                              >
+                                Receive Stock
+                              </button>
+                            ) : (
+                              <span className="text-ink-secondary font-mono text-[11px]">✓ Received &amp; Costed</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Stock Adjustment Modal */}
       {selectedIngredient && (
@@ -333,7 +646,7 @@ export const InventoryHub: React.FC = () => {
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-ink-secondary">Unit Valuation:</span>
+                <span className="text-ink-secondary">Unit Valuation (WAC):</span>
                 <span className="text-ink">₹ {Number(selectedIngredient.cost_per_unit).toFixed(2)}</span>
               </div>
             </div>
@@ -432,6 +745,272 @@ export const InventoryHub: React.FC = () => {
               </ReactiveButton>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Add Supplier Modal */}
+      {showAddSupplierModal && (
+        <div className="fixed inset-0 z-50 bg-ink/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <form onSubmit={handleCreateSupplier} className="bg-canvas-card border border-border w-full max-w-md rounded shadow-2xl p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <h3 className="font-bold text-sm text-ink">Register New Supplier Profile</h3>
+              <button type="button" onClick={() => setShowAddSupplierModal(false)} className="text-ink-secondary hover:text-ink cursor-pointer">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-ink mb-1">Vendor / Firm Legal Name *</label>
+              <input
+                type="text"
+                required
+                value={newSupplier.name}
+                onChange={(e) => setNewSupplier({ ...newSupplier, name: e.target.value })}
+                className="w-full bg-canvas border border-border px-3 py-2 text-xs text-ink rounded focus:outline-none focus:border-brand"
+                placeholder="e.g. Royal Spice Traders"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-ink mb-1">Contact Person</label>
+                <input
+                  type="text"
+                  value={newSupplier.contact_person}
+                  onChange={(e) => setNewSupplier({ ...newSupplier, contact_person: e.target.value })}
+                  className="w-full bg-canvas border border-border px-3 py-2 text-xs text-ink rounded"
+                  placeholder="e.g. Vijay Kumar"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-ink mb-1">Phone Number</label>
+                <input
+                  type="tel"
+                  value={newSupplier.phone}
+                  onChange={(e) => setNewSupplier({ ...newSupplier, phone: e.target.value })}
+                  className="w-full bg-canvas border border-border px-3 py-2 text-xs text-ink font-mono rounded"
+                  placeholder="+91 98200 11223"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-ink mb-1">Email</label>
+                <input
+                  type="email"
+                  value={newSupplier.email}
+                  onChange={(e) => setNewSupplier({ ...newSupplier, email: e.target.value })}
+                  className="w-full bg-canvas border border-border px-3 py-2 text-xs text-ink rounded"
+                  placeholder="vendor@example.com"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-ink mb-1">GSTIN Number</label>
+                <input
+                  type="text"
+                  value={newSupplier.gstin}
+                  onChange={(e) => setNewSupplier({ ...newSupplier, gstin: e.target.value.toUpperCase() })}
+                  className="w-full bg-canvas border border-border px-3 py-2 text-xs font-mono uppercase text-ink rounded"
+                  placeholder="27AABCU1234F1Z1"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-ink mb-1">Warehouse / Supply Address</label>
+              <input
+                type="text"
+                value={newSupplier.address}
+                onChange={(e) => setNewSupplier({ ...newSupplier, address: e.target.value })}
+                className="w-full bg-canvas border border-border px-3 py-2 text-xs text-ink rounded"
+                placeholder="Market Yard, Pune 411037"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-border">
+              <button
+                type="button"
+                onClick={() => setShowAddSupplierModal(false)}
+                className="px-3.5 py-1.5 text-xs text-ink-secondary hover:text-ink cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="px-4 py-1.5 bg-brand text-white font-bold text-xs rounded cursor-pointer hover:bg-brand/90 disabled:opacity-50"
+              >
+                {submitting ? "Saving..." : "Save Supplier"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Add Purchase Order Modal */}
+      {showAddPOModal && (
+        <div className="fixed inset-0 z-50 bg-ink/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <form onSubmit={handleCreatePO} className="bg-canvas-card border border-border w-full max-w-md rounded shadow-2xl p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <h3 className="font-bold text-sm text-ink">Raise New Purchase Order</h3>
+              <button type="button" onClick={() => setShowAddPOModal(false)} className="text-ink-secondary hover:text-ink cursor-pointer">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-ink mb-1">Select Registered Vendor *</label>
+              <select
+                required
+                value={selectedSupplierId}
+                onChange={(e) => setSelectedSupplierId(e.target.value)}
+                className="w-full bg-canvas border border-border px-3 py-2 text-xs text-ink rounded focus:outline-none focus:border-brand"
+              >
+                {suppliers.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name} ({s.contact_person || "Contact"})</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-ink mb-1">Target Raw Material *</label>
+              <select
+                required
+                value={poIngredientId}
+                onChange={(e) => {
+                  setPOIngredientId(e.target.value);
+                  const sel = ingredients.find((i) => i.id === e.target.value);
+                  if (sel) setPOUnitCost(Number(sel.cost_per_unit));
+                }}
+                className="w-full bg-canvas border border-border px-3 py-2 text-xs text-ink rounded focus:outline-none focus:border-brand"
+              >
+                {ingredients.map((ing) => (
+                  <option key={ing.id} value={ing.id}>{ing.name} (Current: {ing.current_stock} {ing.unit})</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-ink mb-1">Ordered Quantity</label>
+                <input
+                  type="number"
+                  step="0.5"
+                  required
+                  value={poQuantity}
+                  onChange={(e) => setPOQuantity(Number(e.target.value))}
+                  className="w-full bg-canvas border border-border px-3 py-2 text-xs font-mono text-ink rounded"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-ink mb-1">Target Cost / Unit (₹)</label>
+                <input
+                  type="number"
+                  step="0.5"
+                  required
+                  value={poUnitCost}
+                  onChange={(e) => setPOUnitCost(Number(e.target.value))}
+                  className="w-full bg-canvas border border-border px-3 py-2 text-xs font-mono text-ink rounded"
+                />
+              </div>
+            </div>
+
+            <div className="p-3 bg-canvas-subtle border border-border rounded text-xs font-mono flex justify-between">
+              <span className="text-ink-secondary">Estimated PO Total:</span>
+              <span className="font-bold text-ink">₹ {(poQuantity * poUnitCost).toFixed(2)}</span>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-border">
+              <button
+                type="button"
+                onClick={() => setShowAddPOModal(false)}
+                className="px-3.5 py-1.5 text-xs text-ink-secondary hover:text-ink cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="px-4 py-1.5 bg-brand text-white font-bold text-xs rounded cursor-pointer hover:bg-brand/90 disabled:opacity-50"
+              >
+                {submitting ? "Submitting..." : "Generate Purchase Order"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Receive Stock Modal */}
+      {receivingPO && (
+        <div className="fixed inset-0 z-50 bg-ink/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <form onSubmit={handleReceivePO} className="bg-canvas-card border border-border w-full max-w-md rounded shadow-2xl p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <h3 className="font-bold text-sm text-ink">Receive Stock: PO #{receivingPO.po_number}</h3>
+              <button type="button" onClick={() => setReceivingPO(null)} className="text-ink-secondary hover:text-ink cursor-pointer">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-ink mb-1">Vendor Invoice / Delivery Challan #</label>
+              <input
+                type="text"
+                required
+                value={invoiceNumberInput}
+                onChange={(e) => setInvoiceNumberInput(e.target.value)}
+                className="w-full bg-canvas border border-border px-3 py-2 text-xs text-ink font-mono rounded"
+                placeholder="INV-9921"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-ink mb-1">Actually Received Qty</label>
+                <input
+                  type="number"
+                  step="0.5"
+                  required
+                  value={receivedQtyInput}
+                  onChange={(e) => setReceivedQtyInput(Number(e.target.value))}
+                  className="w-full bg-canvas border border-border px-3 py-2 text-xs font-mono text-ink rounded"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-ink mb-1">Billed Unit Cost (₹)</label>
+                <input
+                  type="number"
+                  step="0.5"
+                  required
+                  value={actualUnitCostInput}
+                  onChange={(e) => setActualUnitCostInput(Number(e.target.value))}
+                  className="w-full bg-canvas border border-border px-3 py-2 text-xs font-mono text-ink rounded"
+                />
+              </div>
+            </div>
+
+            <div className="p-3 bg-canvas-subtle border border-border rounded text-[11px] font-mono text-ink-secondary space-y-1">
+              <p>• Updates stock ledger with row-level transaction lock (SELECT FOR UPDATE).</p>
+              <p>• Recalculates Weighted Average Cost (WAC) based on actual invoice price.</p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-border">
+              <button
+                type="button"
+                onClick={() => setReceivingPO(null)}
+                className="px-3.5 py-1.5 text-xs text-ink-secondary hover:text-ink cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded cursor-pointer disabled:opacity-50"
+              >
+                {submitting ? "Receiving & Costing..." : "Confirm Stock Receipt"}
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </div>

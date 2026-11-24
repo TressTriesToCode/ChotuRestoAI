@@ -24,7 +24,7 @@ function PosContent() {
   const searchParams = useSearchParams();
   const tableParam = searchParams ? searchParams.get("table") : null;
 
-  const [tables, setTables] = useState<Table[]>(INITIAL_TABLES);
+  const [tables, setTables] = useState<Table[]>([]);
   const [dishes, setDishes] = useState<MenuItem[]>([]);
   const [selectedTableId, setSelectedTableId] = useState<string>(tableParam || "T-04");
   const [ledgerItems, setLedgerItems] = useState<OrderItem[]>([]);
@@ -49,11 +49,11 @@ function PosContent() {
     async function loadInitialData() {
       try {
         const [tableData, menuData] = await Promise.all([
-          fetchTables().catch(() => INITIAL_TABLES),
-          fetchMenuItems().catch(() => MENU_ITEMS),
+          fetchTables().catch(() => []),
+          fetchMenuItems().catch(() => []),
         ]);
-        if (tableData && tableData.length > 0) setTables(tableData);
-        if (menuData && menuData.length > 0) setDishes(menuData);
+        if (Array.isArray(tableData)) setTables(tableData);
+        if (Array.isArray(menuData)) setDishes(menuData);
       } catch (err) {
         console.warn("Using initial fallback state", err);
       }

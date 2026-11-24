@@ -22,6 +22,7 @@ class DiningTable(Base):
     qr_token = Column(String, unique=True, index=True, nullable=False)
     
     current_order_id = Column(String, nullable=True)
+    assigned_waiter_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     captain_name = Column(String, nullable=True)
     current_bill = Column(Numeric(10, 2), default=Decimal("0.00"), nullable=False)
     opened_at = Column(String, nullable=True)

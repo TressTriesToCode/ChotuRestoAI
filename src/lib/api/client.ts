@@ -1,5 +1,13 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api/v1";
-export const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://127.0.0.1:8000";
+const rawApiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api/v1";
+const API_BASE_URL = rawApiUrl.replace(/\/+$/, "").endsWith("/api/v1")
+  ? rawApiUrl.replace(/\/+$/, "")
+  : `${rawApiUrl.replace(/\/+$/, "")}/api/v1`;
+
+export const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || (
+  process.env.NEXT_PUBLIC_API_URL
+    ? process.env.NEXT_PUBLIC_API_URL.replace(/^http/i, "ws").replace(/\/api\/v1\/?$/, "")
+    : "ws://127.0.0.1:8000"
+);
 
 let authToken: string | null = null;
 

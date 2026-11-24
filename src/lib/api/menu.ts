@@ -1,6 +1,13 @@
 import { apiFetch } from "./client";
 import { MenuItem, Dietary } from "@/types/restaurant";
 
+export interface MenuItemVariantData {
+  id?: string;
+  name: string;
+  price_adjustment: number;
+  is_available?: boolean;
+}
+
 export interface BackendMenuItem {
   id: string;
   name: string;
@@ -13,6 +20,21 @@ export interface BackendMenuItem {
   in_stock: boolean;
   spice_level?: 1 | 2 | 3;
   bestseller?: boolean;
+  photo_url?: string | null;
+  preparation_time_minutes?: number;
+  variants?: MenuItemVariantData[];
+}
+
+export interface MenuItemCreatePayload {
+  name: string;
+  category: string;
+  price: number;
+  description?: string;
+  dietary?: string;
+  station?: string;
+  photo_url?: string;
+  preparation_time_minutes?: number;
+  variants?: { name: string; price_adjustment: number }[];
 }
 
 const DISH_IMAGE_MAP: Record<string, string> = {
@@ -40,7 +62,7 @@ export function mapBackendMenuItem(item: BackendMenuItem): MenuItem {
     inStock: item.in_stock,
     spiceLevel: item.spice_level,
     bestseller: item.bestseller,
-    image: DISH_IMAGE_MAP[item.id] || "https://images.unsplash.com/photo-1546833999-b9f581a1996d?auto=format&fit=crop&w=500&q=80",
+    image: item.photo_url || DISH_IMAGE_MAP[item.id] || "https://images.unsplash.com/photo-1546833999-b9f581a1996d?auto=format&fit=crop&w=500&q=80",
   };
 }
 
@@ -48,6 +70,24 @@ export async function fetchMenuItems(category?: string): Promise<MenuItem[]> {
   const qs = category && category !== "all" ? `?category=${category}` : "";
   const data = await apiFetch<BackendMenuItem[]>(`/menu/items${qs}`);
   return data.map(mapBackendMenuItem);
+}
+
+export async function createMenuItem(payload: MenuItemCreatePayload): Promise<MenuItem> {
+  const data = await apiFetch<BackendMenuItem>("/menu/items", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return mapBackendMenuItem(data);
+}
+
+export async function addMenuItemVariant(
+  itemId: string,
+  variant: { name: string; price_adjustment: number }
+): Promise<any> {
+  return apiFetch(`/menu/items/${itemId}/variants`, {
+    method: "POST",
+    body: JSON.stringify(variant),
+  });
 }
 
 export async function updateMenuItem(dishId: string, updates: { inStock?: boolean; price?: number }): Promise<MenuItem> {

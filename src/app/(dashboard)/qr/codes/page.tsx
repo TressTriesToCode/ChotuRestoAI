@@ -9,13 +9,13 @@ import { fetchTables } from "@/lib/api/tables";
 import { QrCode, Printer, ExternalLink, Download, Sparkles } from "lucide-react";
 
 export default function QrCodesAdminPage() {
-  const [tables, setTables] = useState<Table[]>(INITIAL_TABLES);
+  const [tables, setTables] = useState<Table[]>([]);
 
   useEffect(() => {
     async function loadTables() {
       try {
         const data = await fetchTables();
-        if (data && data.length > 0) setTables(data);
+        if (Array.isArray(data)) setTables(data);
       } catch (err) {
         console.warn("Using local QR tables fallback", err);
       }

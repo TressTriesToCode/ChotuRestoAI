@@ -4,7 +4,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.database.session import Base, engine, SessionLocal
 from app.models import *  # ensure all models are registered
-from app.api.v1 import auth, tables, menu, pos, qr, kds, orders, inventory, analytics, ai
+from app.api.v1 import (
+    auth, tables, menu, pos, qr, kds, orders, inventory, analytics, ai,
+    settings as settings_api, staff, customers, delivery, suppliers, notifications
+)
 from app.websocket.manager import ws_manager
 from app.initial_data import init_demo_db
 
@@ -57,6 +60,12 @@ app.include_router(orders.router, prefix=f"{settings.API_V1_STR}/orders", tags=[
 app.include_router(inventory.router, prefix=f"{settings.API_V1_STR}/inventory", tags=["Inventory & Recipes"])
 app.include_router(analytics.router, prefix=f"{settings.API_V1_STR}/analytics", tags=["Operational Analytics"])
 app.include_router(ai.router, prefix=f"{settings.API_V1_STR}/ai", tags=["Chotu AI Assistant"])
+app.include_router(settings_api.router, prefix=f"{settings.API_V1_STR}/settings", tags=["Restaurant Settings"])
+app.include_router(staff.router, prefix=f"{settings.API_V1_STR}/staff", tags=["Staff Management"])
+app.include_router(customers.router, prefix=f"{settings.API_V1_STR}/customers", tags=["Customer CRM & Loyalty"])
+app.include_router(delivery.router, prefix=f"{settings.API_V1_STR}/delivery", tags=["Delivery & Dispatch"])
+app.include_router(suppliers.router, prefix=f"{settings.API_V1_STR}/suppliers", tags=["Suppliers & Purchase Orders"])
+app.include_router(notifications.router, prefix=f"{settings.API_V1_STR}/notifications", tags=["In-App Notifications"])
 
 # WebSocket Endpoint
 @app.websocket("/ws/{restaurant_id}")

@@ -15,6 +15,7 @@ class TableResponse(BaseModel):
     captain_name: Optional[str] = None
     current_bill: Decimal
     opened_at: Optional[str] = None
+    assigned_waiter_id: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -25,6 +26,36 @@ class TableStatusUpdate(BaseModel):
 
 class TableTransferRequest(BaseModel):
     target_table_id: str
+
+class TableWaiterAssignRequest(BaseModel):
+    waiter_id: Optional[str] = None
+
+class MenuItemVariantResponse(BaseModel):
+    id: str
+    menu_item_id: str
+    name: str
+    price: Decimal
+    is_in_stock: bool
+
+    class Config:
+        from_attributes = True
+
+class MenuItemVariantCreate(BaseModel):
+    name: str
+    price: Decimal
+    is_in_stock: bool = True
+
+class MenuItemCreate(BaseModel):
+    category_id: str
+    name: str
+    description: Optional[str] = None
+    price: Decimal
+    dietary: DietaryType = DietaryType.VEG
+    station: StationType = StationType.CURRY
+    spice_level: int = 1
+    is_bestseller: bool = False
+    photo_url: Optional[str] = None
+    preparation_time_minutes: int = 15
 
 class MenuItemResponse(BaseModel):
     id: str
@@ -39,6 +70,9 @@ class MenuItemResponse(BaseModel):
     is_bestseller: bool
     is_in_stock: bool
     is_active: bool
+    photo_url: Optional[str] = None
+    preparation_time_minutes: int = 15
+    variants: List[MenuItemVariantResponse] = []
 
     class Config:
         from_attributes = True

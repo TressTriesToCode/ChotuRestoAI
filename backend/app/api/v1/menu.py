@@ -1,9 +1,13 @@
+import uuid
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database.session import get_db
-from app.models.menu import MenuItem, MenuCategory
-from app.schemas.menu import MenuItemResponse, MenuCategoryResponse, StockStatusUpdate, MenuItemUpdate
+from app.models.menu import MenuItem, MenuCategory, MenuItemVariant
+from app.schemas.menu import (
+    MenuItemResponse, MenuCategoryResponse, StockStatusUpdate,
+    MenuItemUpdate, MenuItemCreate, MenuItemVariantCreate, MenuItemVariantResponse
+)
 from app.api.deps import get_current_user
 from app.models.user import User
 from app.websocket.manager import ws_manager
@@ -72,3 +76,63 @@ async def update_menu_item(
         create_ws_message(WSEventType.DISH_STOCK_TOGGLED, {"dish_id": dish.id, "is_in_stock": dish.is_in_stock, "price": float(dish.price)})
     )
     return dish
+
+@router.post("/items", response_model=MenuItemResponse)
+def create_menu_item(
+    req: MenuItemCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    cat = db.query(MenuCategory).filter(
+        MenuCategory.id == req.category_id,
+        MenuCategory.restaurant_id == current_user.restaurant_id
+    ).first()
+    if not cat:
+        raise HTTPException(status_code=400, detail="Invalid category ID")
+
+    new_dish = MenuItem(
+        id=f"dish-{uuid.uuid4().hex[:8]}",
+        restaurant_id=current_user.restaurant_id,
+        category_id=req.category_id,
+        name=req.name,
+        description=req.description,
+        price=req.price,
+        dietary=req.dietary,
+        station=req.station,
+        spice_level=req.spice_level,
+        is_bestseller=req.is_bestseller,
+        is_in_stock=True,
+        is_active=True,
+        photo_url=req.photo_url,
+        preparation_time_minutes=req.preparation_time_minutes
+    )
+    db.add(new_dish)
+    db.commit()
+    db.refresh(new_dish)
+    return new_dish
+
+@router.post("/items/{dish_id}/variants", response_model=MenuItemVariantResponse)
+def add_item_variant(
+    dish_id: str,
+    req: MenuItemVariantCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    dish = db.query(MenuItem).filter(
+        MenuItem.id == dish_id,
+        MenuItem.restaurant_id == current_user.restaurant_id
+    ).first()
+    if not dish:
+        raise HTTPException(status_code=404, detail="Dish not found")
+
+    variant = MenuItemVariant(
+        id=f"var-{uuid.uuid4().hex[:8]}",
+        menu_item_id=dish.id,
+        name=req.name,
+        price=req.price,
+        is_in_stock=req.is_in_stock
+    )
+    db.add(variant)
+    db.commit()
+    db.refresh(variant)
+    return variant

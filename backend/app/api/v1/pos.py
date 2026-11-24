@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database.session import get_db
 from app.models.order import Order, PlacedBy
+from app.models.table import DiningTable
 from app.schemas.order import OrderResponse, BillSettlementRequest
 from app.schemas.kot import KOTResponse
 from app.services.order_service import OrderService
@@ -96,7 +97,14 @@ async def settle_table_bill(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    order = OrderService.get_or_create_table_order(db, current_user.restaurant_id, table_id, placed_by=PlacedBy.POS)
+    table = db.query(DiningTable).filter(DiningTable.id == table_id, DiningTable.restaurant_id == current_user.restaurant_id).first()
+    if not table:
+        raise HTTPException(status_code=404, detail="Table not found")
+    if not table.current_order_id:
+        raise HTTPException(status_code=400, detail="Table has no active order to settle")
+    order = db.query(Order).filter(Order.id == table.current_order_id).first()
+    if not order or not order.items:
+        raise HTTPException(status_code=400, detail="Cannot settle an empty order")
     order = OrderService.settle_bill(db, order.id, req.payment_method)
 
     await ws_manager.broadcast_to_restaurant(
