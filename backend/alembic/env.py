@@ -37,12 +37,15 @@ def run_migrations_online() -> None:
     configuration = config.get_section(config.config_ini_section)
     if configuration is None:
         configuration = {}
-    # Use config URL if set, otherwise fallback to settings.DATABASE_URL
-    custom_url = config.get_main_option("sqlalchemy.url")
-    if custom_url:
-        configuration["sqlalchemy.url"] = custom_url
-    else:
-        configuration["sqlalchemy.url"] = settings.DATABASE_URL
+    
+    # Prioritize settings.DATABASE_URL (or DATABASE_URL env var) over alembic.ini's static localhost fallback
+    db_url = os.getenv("DATABASE_URL") or settings.DATABASE_URL
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql+psycopg://", 1)
+    elif db_url.startswith("postgresql://") and not db_url.startswith("postgresql+psycopg://"):
+        db_url = db_url.replace("postgresql://", "postgresql+psycopg://", 1)
+    
+    configuration["sqlalchemy.url"] = db_url
 
     connectable = engine_from_config(
         configuration,
